@@ -1,0 +1,7 @@
+main() {
+    var app = web.app()
+    app.get("/api/health") {
+        return observability.health()
+    }
+    app.listen(config.int("server.port", 8080))
+}

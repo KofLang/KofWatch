@@ -1,1 +1,21 @@
 .continue/agents/new-config.yaml
+
+# Toolchain baixado (kof + JDK embarcado) — ~600MB, reinstalável
+.tools/
+
+# Artefatos de build do kof
+build/
+*.class
+*.jar
+
+# Banco H2 em arquivo (dados de runtime)
+data/
+*.mv.db
+*.trace.db
+*.lock.db
+
+# Diretórios de probe/scratch
+.probe/
+
+# Logs do auto-loop
+*.log

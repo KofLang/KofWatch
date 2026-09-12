@@ -1,0 +1,45 @@
+String canonicalLabels(String labels) {
+    if (labels == null) { return "" }
+    var trimmed = labels.trim()
+    if (trimmed == "") { return "" }
+    var parts = trimmed.split(",")
+    var kvs = mapOf("__none__", "__none__")
+    kvs.clear()
+    for (var p in parts) {
+        var kv = p.trim()
+        if (kv == "") { continue }
+        var eq = kv.indexOf("=")
+        if (eq <= 0) { throw "label inválido: " + kv }
+        kvs.put(kv.substring(0, eq).trim(), kv.substring(eq + 1).trim())
+    }
+    var keys = kvs.keys()
+    // Ordenação por inserção: `a < b` entre Strings é Unspecified no Kof
+    // 0.3.22 (compila e sempre dá false) — compareTo é o que ordena de fato.
+    var i = 1
+    while (i < keys.size) {
+        var cur = keys.get(i)
+        var j = i - 1
+        while (j >= 0 && keys.get(j).compareTo(cur) > 0) {
+            keys.set(j + 1, keys.get(j))
+            j = j - 1
+        }
+        keys.set(j + 1, cur)
+        i = i + 1
+    }
+    var out = ""
+    var first = true
+    for (var k in keys) {
+        if (!first) { out = out + "," }
+        out = out + k + "=" + kvs.get(k)
+        first = false
+    }
+    return out
+}
+
+Double toDoubleOrThrow(String s) {
+    try {
+        return s.toDouble()
+    } catch (String e) {
+        throw "número inválido: " + s
+    }
+}

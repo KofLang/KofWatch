@@ -1,4 +1,4 @@
-record MetricIn(String name, Double valor, Long ts, String labels)
+record MetricaIn(String name, String valor, String ts, String labels)
 
 record SerieOut(String name, String labels, Double valor, Long ts, Long count)
 
@@ -9,3 +9,5 @@ record IngestOut(Bool ok, Long id)
 record InfoOut(String name, String version, Long uptimeMs, Long amostras)
 
 record AggOut(String funcao, Double valor)
+
+record ErroOut(String erro)

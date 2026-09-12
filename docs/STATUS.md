@@ -13,6 +13,15 @@
   (GET/POST), `/api/query/:name`, `/api/aggregate/:name`; auto-coleta via
   `scheduler.every` e retenção de 24h. Sobe com `kof run --deps Main.kf`
   na porta 8080, CORS aberto nos GETs.
+- **Validação de entrada (Etapa A da continuação, 12/09)** — todas as
+  rotas devolvem 400 com `{"erro": ...}` para entrada inválida:
+  ingestão exige `name`, `valor` numérico e `ts` inteiro não-negativo
+  (contrato novo: record `MetricaIn` com campos String — ver PLAN §4);
+  `from`/`to`/`windowMs` devem ser inteiros; `fn` restrito a
+  avg/sum/min/max/count; `labels` fora do formato canônico → 400; body
+  JSON malformado → 400. Métrica inexistente responde `[]`/`0.0`
+  (graceful). Prova: bateria curl com 12 casos inválidos → 12×400,
+  ingestão válida → 201, health → `UP`.
 - **Dashboard kof-ui ao vivo** (`web/Index.kf`): tabela de séries,
   seletor, gráfico Canvas com grid + área preenchida, atualização
   automática a cada 3s (`time.interval`) e botão "atualizar" manual.
@@ -50,11 +59,16 @@ fresco de 19:22 sem patch voltou ao stub).
    `Labels.kf` (some quando a stdlib cobrir).
 5. Arredondamento/formatação numérica no front: `Double` js é número JS,
    exibição via `.toString()`.
+6. Query string sem URL-decode no runtime: clientes não devem
+   percent-encode os valores de `labels` (ver PLAN §4).
+7. Suíte de testes multi-arquivo: `kof test <dir>` compila cada arquivo
+   isolado e falha em dependências (ver PLAN §4); cobrir rotas com
+   bateria curl em script.
 
 ## Como está rodando agora (ambiente desta sessão)
 
 - Backend: porta 8080, 7 séries (cpu ×2, cpu.busy, disk.used, mem,
-  temp.cpu, temp.gpu).
+  temp.cpu, temp.gpu) + validação Etapa A ativa.
 - Dashboard: `python3 -m http.server 8099 --directory /tmp/idxbuild`
   (build COM patch do fetch) — http://127.0.0.1:8099/
 - Reproduzível: ver "Rodando" no [README.md](../README.md).

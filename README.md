@@ -43,6 +43,9 @@ curl -s -X POST localhost:8080/api/metrics \
 
 - `ts=0` → o backend preenche com `time.now()`.
 - A série aparece sozinha no dashboard no tick seguinte do polling.
+- Entrada inválida devolve 400 com `{"erro": "..."}`: `name`, `valor`
+  (numérico) e `ts` (inteiro >= 0) são obrigatórios; `labels` deve seguir
+  o formato `chave=valor` (sem percent-encoding na query string).
 
 ## API
 

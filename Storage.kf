@@ -11,8 +11,8 @@ void storageInit(String db) {
     orm.migrate(db, "amostra_serie_ts", "CREATE INDEX IF NOT EXISTS amostra_serie_ts ON \"amostra\"(\"name\", \"ts\")")
 }
 
-Long registrar(String db, MetricIn entrada) {
-    var salva = orm.save(db, Amostra(0, entrada.name, entrada.ts, entrada.valor, canonicalLabels(entrada.labels))) as Amostra
+Long registrar(String db, String name, Double valor, Long ts, String labels) {
+    var salva = orm.save(db, Amostra(0, name, ts, valor, canonicalLabels(labels))) as Amostra
     return salva.id
 }
 

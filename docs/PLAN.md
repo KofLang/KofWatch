@@ -188,6 +188,18 @@ KofWatch/
 Condição de conclusão do MVP: ingestão via curl → consulta via curl →
 dashboard kof-ui exibindo a série com gráfico Canvas — tudo em Kof. ✅
 
+7. **Robustez (Etapa A da continuação)** — validação de entrada em todas
+   as rotas com 400 + `{"erro": ...}`: `name`/`valor`/`ts` obrigatórios e
+   tipados na ingestão; `from`/`to`/`windowMs` inteiros; `fn` na
+   whitelist; `labels` canônico (try/catch em `canonicalLabels`); body
+   body JSON malformado → 400; `ts=0` passa a preencher com `time.now()`
+   (comportamento documentado no README que nunca tinha sido
+   implementado — divergência doc/código resolvida no código). Prova:
+   bateria curl completa (8 POST + 4 GET
+   inválidos → 400; ingestão válida → 201; métrica inexistente →
+   `[]`/`0.0` graceful; `/api/health` → `UP`; ingestão com `ts=0`
+   aparece na agregação de 60s). ✅
+
 ### Desenho real do front (ajustado na Etapa 5)
 
 O §2 previa polling via `time.interval` e consulta por Input+Button; a
@@ -232,11 +244,18 @@ reload da página. Canvas verificado por contagem de pixels (57.978 pintados).
 
 - `json.encode(Map)` quebrado no JVM (JDK modules) — afeta serialização de
   labels dinâmicos; workaround no KofWatch (labels string canônica).
-- `http.*` browser-side: segue **stub `""` na 0.3.22-beta** (build fresco de
-  12/09 confirmado). O browser precisa do patch manual no `kof-runtime.mjs`
-  (bloco "Fallback to fetch" → `fetch(...)` real; a Promise propaga pelo
-  `kofSpawnResult`/`kofAwait` e o `spawn { await(...) }` funciona). No
-  webview não precisa: o I/O resolve via interop Java HttpClient.
+- `http.*` browser-side: **stub `""` no binário 0.3.22-beta** — build fresco
+  de 12/09 confirma o stub `return ""` no bloco "Fallback to fetch" do
+  `kof-runtime.mjs` gerado. **Causa raiz investigada no fonte do Kof4j
+  (branch `beta-0.4.0`, commit 94b40118): o fallback fetch real JÁ EXISTE
+  em `JsRuntimeUiLayout.java` (~L475, com AbortController/timeout/retry
+  circuit)** — o binário distribuído é anterior à correção. Reconstruir o
+  compilador do fonte resolve sem patch (bloqueado neste ambiente: sem
+  maven/java no host). Workaround atual: patch pós-build no
+  `kof-runtime.mjs` (bloco → `fetch(url, {method, headers, body, signal})`
+  real; a Promise propaga pelo `kofSpawnResult`/`kofAwait`). No webview não
+  precisa: I/O resolve via interop Java HttpClient. Classificação: Kof
+  compiler (solução já no fonte; falta build), KofWatch (patch transitório).
 - `kof serve` sem `--deps` — backend sobe com `kof run --deps`.
 - **CONC003-JS-01** — handlers de widget (`on("change", ...)`) e callbacks
   de `time.interval` não podem usar `await` direto/`spawn()`/`channel.receive`.
@@ -255,3 +274,33 @@ reload da página. Canvas verificado por contagem de pixels (57.978 pintados).
   inicial não existe); cores `Palette.*` e `Color.rgba(r,g,b,a)`.
 - **`Double` no js é número JS** — sem `longValue()`; formatação numérica
   via `.toString()` (sem arredondamento de centavos no front do MVP).
+- **Record com campo numérico nullable apagado no JVM (gap novo, 12/09)** —
+  `record MetricIn(String, Double?, Long?, String)` gera accessors
+  primitivos `double`/`long` no bytecode (`javap` prova): a checagem
+  `campo == null` é eliminada como morta e o decoder JSON passa `null`
+  para o accessor primitivo → NPE 500 ("Cannot invoke Number.longValue()")
+  quando o campo falta, e 500 "argument type mismatch" quando o tipo erra.
+  Em `kof script` o mesmo record mantém os campos boxed (comportamento
+  inconsistente entre modos). `json.decode<Map<String,Object>>` não existe
+  no runtime (`kof_json_decode_Map` sem implementação), então não há como
+  decodificar mapa genérico para validar antes. Solução no KofWatch: record
+  de entrada com campos `String` (`MetricaIn`) tolerante a campo ausente,
+  com validação/conversão explícita → 400 com mensagem clara. Classificação:
+  Kof compiler (apagamento de nullable em record) + Kof runtime (decoder
+  sem mapa genérico). Solução ideal: manter boxing em record nullable e
+  decoder tolerante que retorne erro tipado em vez de estourar 500.
+- **`kof test <dir>` não resolve multi-arquivo (gap novo, 12/09)** — roda
+  cada `.kf` como programa isolado; arquivos que dependem de outros
+  (`Main.kf` usa `Storage.kf`/`Labels.kf`) falham na compilação do teste
+  com "Undefined function". Suíte multi-arquivo só via `kof run` do app +
+  curl. Classificação: Kof toolchain.
+- **Query string sem URL-decode (gap novo, 12/09)** — `query("labels")`
+  devolve o valor cru; `?labels=a%3D1` chega como literal `a%3D1` e o
+  `canonicalLabels` rejeita ("label inválido"). O cliente deve enviar os
+  valores sem percent-encoding (`?labels=a=1,b=2` — vírgulas e `=` passam
+  ilesos). Classificação: Kof runtime (web).
+- **`&&` não protege unboxing em comparação (gap novo, 12/09)** —
+  `if (x != null && x < 0)` com `x: Long?` compila mas o lado direito
+  unboxa mesmo assim (NPE) quando o nullable é apagado para primitivo;
+  regra local: checar null em `if` separado (ver gap do record acima).
+  Classificação: Kof compiler.

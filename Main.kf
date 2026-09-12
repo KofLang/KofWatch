@@ -9,6 +9,49 @@ Long parametroLong(String chave, Long padrao) {
     return toLongOrThrow(bruto)
 }
 
+Bool longValido(String bruto) {
+    try {
+        bruto.toLong()
+        return true
+    } catch (String e) {
+        return false
+    }
+}
+
+String? erroDeQuery(String chave) {
+    var bruto = query(chave)
+    if (bruto == null || bruto == "" || longValido(bruto)) { return null }
+    return "parâmetro " + chave + " inválido: " + bruto
+}
+
+String? erroDeIngestao(MetricaIn entrada) {
+    if (entrada.name == null || entrada.name.trim() == "") { return "name é obrigatório" }
+    if (entrada.valor == null || entrada.valor.trim() == "") { return "valor é obrigatório" }
+    if (entrada.ts == null || entrada.ts.trim() == "") { return "ts é obrigatório" }
+    try {
+        entrada.valor.toDouble()
+    } catch (String e) {
+        return "valor deve ser numérico: " + entrada.valor
+    }
+    try {
+        entrada.ts.toLong()
+    } catch (String e) {
+        return "ts deve ser inteiro: " + entrada.ts
+    }
+    if (entrada.ts.toLong() < 0) { return "ts não pode ser negativo" }
+    return null
+}
+
+String? erroDeLabels(String? bruto) {
+    if (bruto == null || bruto == "") { return null }
+    try {
+        canonicalLabels(bruto)
+        return null
+    } catch (String e) {
+        return e
+    }
+}
+
 main() {
     var app = web.app()
     var db = db.connect(config.str("db.url", "jdbc:h2:./data/kofwatch;AUTO_SERVER=TRUE"))
@@ -26,10 +69,24 @@ main() {
     }
 
     app.post("/api/metrics") {
-        var entrada = json.decode<MetricIn>(body())
-        var id = registrar(db, entrada)
-        log.info("amostra " + entrada.name + " id=" + id)
-        return status(201, json.encode(IngestOut(true, id)))
+        var entrada: MetricaIn?
+        try {
+            entrada = json.decode<MetricaIn>(body())
+        } catch (Exception e) {
+            return status(400, json.encode(ErroOut("corpo inválido: JSON malformado")))
+        }
+        if (entrada != null) {
+            var erro = erroDeIngestao(entrada)
+            if (erro != null) {
+                return status(400, json.encode(ErroOut(erro)))
+            }
+            var ts = entrada.ts.toLong()
+            if (ts == 0) { ts = time.now() }
+            var id = registrar(db, entrada.name, entrada.valor.toDouble(), ts, entrada.labels)
+            log.info("amostra " + entrada.name + " id=" + id)
+            return status(201, json.encode(IngestOut(true, id)))
+        }
+        return status(400, json.encode(ErroOut("corpo inválido: JSON malformado")))
     }
 
     app.get("/api/metrics") {
@@ -39,6 +96,12 @@ main() {
 
     app.get("/api/query/:name") {
         headerSet("Access-Control-Allow-Origin", "*")
+        var erroFrom = erroDeQuery("from")
+        if (erroFrom != null) { return status(400, json.encode(ErroOut(erroFrom))) }
+        var erroTo = erroDeQuery("to")
+        if (erroTo != null) { return status(400, json.encode(ErroOut(erroTo))) }
+        var erroLabels = erroDeLabels(query("labels"))
+        if (erroLabels != null) { return status(400, json.encode(ErroOut(erroLabels))) }
         var metrica = param("name")
         var de = parametroLong("from", 0)
         var ate = parametroLong("to", time.now())
@@ -48,9 +111,14 @@ main() {
 
     app.get("/api/aggregate/:name") {
         headerSet("Access-Control-Allow-Origin", "*")
+        var erroFn = erroDeQuery("windowMs")
+        if (erroFn != null) { return status(400, json.encode(ErroOut(erroFn))) }
         var nome = query("fn")
         var janela = parametroLong("windowMs", 86400000)
         var ate = time.now()
+        if (nome != "avg" && nome != "sum" && nome != "min" && nome != "max" && nome != "count") {
+            return status(400, json.encode(ErroOut("agregação inválida: " + nome)))
+        }
         return json.encode(AggOut(nome, agregar(db, param("name"), nome, ate - janela, ate)))
     }
 

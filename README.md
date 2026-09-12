@@ -24,7 +24,7 @@ KOF=./.tools/kof-0.3.22-beta-linux-x86_64/bin/kof
 $KOF run --deps Main.kf
 
 # 2. dashboard (outro terminal)
-$KOF build web --target js --output /tmp/kofbuild
+./scripts/build-dashboard.sh /tmp/kofbuild
 python3 -m http.server 8099 --directory /tmp/kofbuild
 # abrir http://127.0.0.1:8099/
 ```

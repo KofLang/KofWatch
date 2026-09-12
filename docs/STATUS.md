@@ -41,18 +41,28 @@
 | Webview nativo (`kof run --target=js`) | interop Java HttpClient | mecanismo igual; pulso end-to-end não revalidado nesta sessão |
 
 No browser, o build fresco da 0.3.22-beta emite stub `""` no bloco
-"Fallback to fetch" do `kof-runtime.mjs` — o patch manual (bloco →
-`fetch(url, {method, headers, body, signal})` real) continua necessário
-(negado duas vezes: build de 18:47 com patch manual funcionando; build
-fresco de 19:22 sem patch voltou ao stub).
+"Fallback to fetch" do `kof-runtime.mjs`. O patch agora é aplicado
+automaticamente por `scripts/build-dashboard.sh` (pendência 2
+resolvida): o script gera o build e substitui o corpo do `if` stub por
+fetch assíncrono que devolve uma Promise de string — o `kofAwait` do
+runtime e o `kofSpawnResult` achatam a Promise corretamente. Detalhes
+que custaram debugging: um patch que só troca a linha `return ""`
+deixa um `}` órfão (SyntaxError "Missing catch or finally after try");
+retornar um handle customizado quebra o flatten do `kofSpawnResult`
+(JSON.parse recebe objeto); `await` direto na função síncrona é
+"Unexpected reserved word"; e o `headers` chega como string
+`"K: V\n..."`, precisando parse antes do fetch. Prova: build de
+23:18 com 3 séries reais — tabela, select, rótulo, Canvas (61k pixels
+pintados), polling ao vivo (gpu.temp apareceu sozinha no pulso
+seguinte) e botão atualizar, tudo sem erros no console.
 
 ## Pendências conhecidas (não bloqueiam o MVP)
 
 1. Revalidar um pulso do webview nativo end-to-end (mesmo mecanismo do
    browser, caminho de I/O diferente).
-2. `kof build` do dashboard com patch embutido no fluxo (script que
-   aplica o patch no `kof-runtime.mjs` pós-build) para não depender de
-   patch manual a cada build.
+2. ~~`kof build` do dashboard com patch embutido no fluxo~~ RESOLVIDA:
+   `scripts/build-dashboard.sh` (12/09) gera o build e aplica o patch
+   do fetch automaticamente; validado no browser end-to-end.
 3. Labels dinâmicos: `json.encode(Map)` quebrado no JVM — segue string
    canônica `k=v,k=v`.
 4. `sort`/`join` ausentes na stdlib 0.3.22 — contorno local em
@@ -67,8 +77,10 @@ fresco de 19:22 sem patch voltou ao stub).
 
 ## Como está rodando agora (ambiente desta sessão)
 
-- Backend: porta 8080, 7 séries (cpu ×2, cpu.busy, disk.used, mem,
-  temp.cpu, temp.gpu) + validação Etapa A ativa.
-- Dashboard: `python3 -m http.server 8099 --directory /tmp/idxbuild`
-  (build COM patch do fetch) — http://127.0.0.1:8099/
+- Backend: porta 8080, banco limpo com 3 séries de semeadura
+  (cpu.busy, gpu.temp, mem) + validação Etapa A ativa; concorrência
+  provada (20 POST + 20 GET paralelos, 20/20 amostras persistidas).
+- Dashboard: `./scripts/build-dashboard.sh /tmp/kofwatch-dash-test` +
+  `python3 -m http.server 8765 --directory /tmp/kofwatch-dash-test`
+  — http://localhost:8765/ (build COM patch automático do fetch).
 - Reproduzível: ver "Rodando" no [README.md](../README.md).

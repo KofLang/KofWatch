@@ -200,6 +200,14 @@ dashboard kof-ui exibindo a série com gráfico Canvas — tudo em Kof. ✅
    `[]`/`0.0` graceful; `/api/health` → `UP`; ingestão com `ts=0`
    aparece na agregação de 60s). ✅
 
+8. **Concorrência e retenção (fechamento da Etapa A, 12/09)** — rajada
+   de 20 POST paralelos + 20 GET paralelos: 20/20 amostras persistidas
+   com valores distintos e ids sequenciais, 20/20 consultas `200`,
+   `count=20` na agregação; nenhuma 5xx. Retenção: agendador
+   `scheduler.every` ativo desde o boot sem erro no log (ciclo default
+   1h de check — retenção efetiva validada apenas por não-crashar;
+   teste de janela curta fica para a Etapa E). ✅
+
 ### Desenho real do front (ajustado na Etapa 5)
 
 O §2 previa polling via `time.interval` e consulta por Input+Button; a
@@ -251,11 +259,18 @@ reload da página. Canvas verificado por contagem de pixels (57.978 pintados).
   em `JsRuntimeUiLayout.java` (~L475, com AbortController/timeout/retry
   circuit)** — o binário distribuído é anterior à correção. Reconstruir o
   compilador do fonte resolve sem patch (bloqueado neste ambiente: sem
-  maven/java no host). Workaround atual: patch pós-build no
-  `kof-runtime.mjs` (bloco → `fetch(url, {method, headers, body, signal})`
-  real; a Promise propaga pelo `kofSpawnResult`/`kofAwait`). No webview não
-  precisa: I/O resolve via interop Java HttpClient. Classificação: Kof
-  compiler (solução já no fonte; falta build), KofWatch (patch transitório).
+  maven/java no host). Workaround atual: patch pós-build automatizado em
+  `scripts/build-dashboard.sh`. Detalhes de engenharia do patch
+  (custaram 4 tentativas em 12/09): (a) trocar só a linha `return ""`
+  deixa um `}` órfão → SyntaxError; (b) retornar handle customizado
+  quebra o flatten de Promise do `kofSpawnResult` → `JSON.parse` recebe
+  objeto; (c) `await` dentro de `kofHttpRequest` (síncrona) →
+  "Unexpected reserved word"; (d) `headers` chega como string
+  `"K: V\n..."` e precisa ser parseada para objeto antes do fetch.
+  Forma correta: substituir o corpo inteiro do `if (typeof fetch...)`
+  por uma Promise de string (`resposta.text()`), parseando headers.
+  No webview não precisa: I/O resolve via interop Java HttpClient.
+  Classificação: Kof compiler (solução já no fonte; falta build), KofWatch (patch transitório).
 - `kof serve` sem `--deps` — backend sobe com `kof run --deps`.
 - **CONC003-JS-01** — handlers de widget (`on("change", ...)`) e callbacks
   de `time.interval` não podem usar `await` direto/`spawn()`/`channel.receive`.

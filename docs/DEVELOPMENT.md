@@ -45,10 +45,13 @@ curl -s -X POST localhost:8080/api/metrics \
 ### Browser (modo principal)
 
 ```bash
-$KOF build web --target js --output /tmp/kofbuild
+./scripts/build-dashboard.sh /tmp/kofbuild
 python3 -m http.server 8099 --directory /tmp/kofbuild
 # abrir http://127.0.0.1:8099/
 ```
+
+O script gera o build com `kof build web` e aplica automaticamente o
+patch do fetch no `kof-runtime.mjs` (ver detalhes em PLAN.md §4).
 
 No browser, o dashboard é ao vivo: um `time.interval(3000)` e o botão
 "atualizar" disparam blocos `spawn { ... }` que rebuscam `/api/metrics` e
@@ -63,12 +66,15 @@ flatpak-spawn --host env DISPLAY=:0 \
 ```
 
 - A toolchain 0.3.22-beta emite um stub `""` no `http` browser-side (o
-  fallback do `kof-runtime.mjs` gerado não faz fetch). No browser, o build
-  precisa do patch manual: substituir o corpo do bloco
-  "Fallback to fetch" por `return fetch(url, { method, headers, body,
-  signal })...` real. Cheque com `grep -c "return fetch" kof-runtime.mjs`
-  no build (0 = sem patch, dashboard não carrega dados).
-  No webview nativo não precisa: o I/O resolve via interop Java.
+  fallback do `kof-runtime.mjs` gerado não faz fetch). O patch é
+  aplicado automaticamente pelo `scripts/build-dashboard.sh`; se
+  precisar fazer manualmente, substitua o corpo inteiro do bloco
+  `if (typeof fetch !== 'undefined')` por uma Promise de
+  `resposta.text()` (parseando `headers`, que chega como string
+  `"K: V\n..."`). Cheque com `grep -c "await fetch\|fetch(url,"
+  kof-runtime.mjs` no build (0 = sem patch, dashboard não carrega
+  dados). No webview nativo não precisa: o I/O resolve via interop
+  Java.
 - Handlers/timers não aceitam `await` direto (CONC003-JS-01); a forma
   permitida é `spawn { ... await(...) ... }` em bloco.
 

@@ -1,0 +1,70 @@
+String canonicalLabels(String labels) {
+    if (labels == null) { return "" }
+    var trimmed = labels.trim()
+    if (trimmed == "") { return "" }
+    var parts = trimmed.split(",")
+    var kvs = mapOf("__none__", "__none__")
+    kvs.clear()
+    for (var p in parts) {
+        var kv = p.trim()
+        if (kv == "") { continue }
+        var eq = kv.indexOf("=")
+        if (eq <= 0) { throw "label inválido: " + kv }
+        kvs.put(kv.substring(0, eq).trim(), kv.substring(eq + 1).trim())
+    }
+    var keys = kvs.keys()
+    var sorted = listOf("__none__")
+    sorted.clear()
+    for (var k in keys) { sorted.add(k) }
+    var out = ""
+    var first = true
+    var n = sorted.size
+    for (var i = 0; i < n; i++) {
+        var minI = -1
+        var minK = ""
+        for (var k in sorted) {
+            if (k == "") { continue }
+            if (minI == -1 || k < minK) { minK = k; minI = 1 }
+        }
+        if (minI == -1) { break }
+        sorted.set(sorted.indexOf(minK), "")
+        if (!first) { out = out + "," }
+        out = out + minK + "=" + kvs.get(minK)
+        first = false
+    }
+    return out
+}
+
+Double toDoubleOrThrow(String s) {
+    var ok = strings.isNumeric(s)
+    if (!ok) { throw "número inválido: " + s }
+    var neg = s.startsWith("-")
+    var digits = s
+    if (neg) { digits = s.substring(1) }
+    if (digits.contains(".")) {
+        var whole = 0.0
+        var wi = 0
+        var intPart = digits.split(".")[0]
+        for (var c in intPart) {
+            wi = wi * 10 + (c - 48)
+        }
+        whole = wi * 1.0
+        var fracPart = digits.split(".")[1]
+        var frac = 0.0
+        var div = 10.0
+        for (var c in fracPart) {
+            frac = frac + (c - 48) / div
+            div = div * 10
+        }
+        var r = whole + frac
+        if (neg) { return -r }
+        return r
+    }
+    var n2 = 0
+    for (var c in digits) {
+        n2 = n2 * 10 + (c - 48)
+    }
+    var r2 = n2 * 1.0
+    if (neg) { return -r2 }
+    return r2
+}

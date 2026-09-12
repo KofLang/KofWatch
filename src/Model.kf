@@ -1,0 +1,5 @@
+record MetricIn(String name, Double v, Long ts, String labels)
+
+record Amostra(Long ts, Double v)
+
+record Serie(String name, String labels, Double lastVal, Long lastTs, Int count)

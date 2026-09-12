@@ -1,7 +1,7 @@
 # KofWatch — Plano de Implementação (MVP)
 
-**Status:** em desenvolvimento
-**Data:** 11/09/2026
+**Status:** MVP concluído (backend + dashboard com dados reais)
+**Data:** 11/09/2026 (atualizado 12/09/2026)
 **Linguagem:** Kof 0.3.22-beta (`/home/mel/Documentos/Kof4j`)
 **Repo:** `/home/mel/KofWatch`
 
@@ -67,9 +67,9 @@ neste plano — nada aqui é suposição.
 │  web/Index.kf                 │      │  src/Main.kf                 │
 │                               │      │                              │
 │  Window + Dashboard shell     │      │  web.app()                   │
-│  - tabela de métricas         │ HTTP │  ├─ POST /api/metrics        │
+│  - tabela de métricas         │      │  ├─ POST /api/metrics        │
 │  - painel de consulta         │◄────►│  ├─ GET  /api/metrics        │
-│  - polling via time.interval  │ JSON │  ├─ GET  /api/query/:name    │
+│  - polling via time.interval  │      │  ├─ GET  /api/query/:name    │
 │    + http.get (runner         │      │  ├─ GET  /api/health         │
 │      embarcado/webview)       │      │  └─ (H2 em arquivo data/)    │
 └───────────────────────────────┘      └──────────────────────────────┘
@@ -151,48 +151,81 @@ KofWatch/
 ├── kofdeps                   # com.h2database:h2:2.2.224
 ├── scripts/auto-loop.sh      # heartbeat autônomo (porta 9093)
 ├── docs/                     # este plano + DEVELOPMENT.md
-├── src/                      # backend (package kofwatch)
-│   ├── Main.kf               # main() único: config, db, rotas, scheduler
-│   ├── Model.kf              # records de domínio (MetricIn, Serie, Amostra)
-│   ├── Storage.kf            # DDL, insert, séries, query, agregação, retenção
-│   ├── Api.kf                # registro das rotas web.app()
-│   └── Collector.kf          # auto-coleta: uptime/samples via scheduler
+├── Main.kf                   # main() único: config, db, rotas, scheduler
+├── Model.kf                  # records de domínio (MetricIn, Serie, Amostra)
+├── Storage.kf                # DDL, insert, séries, query, agregação, retenção
+├── Labels.kf                 # canonicalização de labels + suíte `test`
 ├── web/
-│   └── Index.kf              # front kof-ui (package vazio, main() próprio)
-└── tests/
-    └── Storage.kf            # `test "..." { assert }` — storage/query/labels
+│   └── Index.kf              # front kof-ui (main() próprio)
 ```
 
-- `kof run --deps src/Main.kf` sobe o backend (module root: `src/`).
-- `kof run --target=js web/Index.kf` abre o dashboard.
-- `kof test tests/` roda a suíte estruturada.
+- Fontes na RAIZ do projeto (gap 8: `src/` deriva package e quebra o decode
+  tipado) — um único `main()` no diretório (PKG002).
+- `kof run --deps Main.kf` sobe o backend (porta 8080).
+- `kof run --target=js web/Index.kf` abre o dashboard (webview nativo);
+  `kof build web --target js --output <dir>` gera `index.html` para browser.
+- `kof test Labels.kf` roda a suíte (os `test` vivem no próprio arquivo).
 
 ---
 
 ## 3. Etapas (modo autônomo — uma unidade coesa por commit)
 
-1. **Esqueleto compilável** — kof.toml, kofdeps, src/Main.kf mínimo
-   (`/api/health`), `kof run --deps` sobe, curl valida.
+1. **Esqueleto compilável** — kof.toml, kofdeps, Main.kf mínimo
+   (`/api/health`), `kof run --deps` sobe, curl valida. ✅
 2. **Storage** — Model.kf + Storage.kf (DDL/insert/query/agregação) +
-   testes `kof test`. Prova: suíte verde.
-3. **API completa** — Api.kf com as 6 rotas + logs + erros. Prova: curl em
-   cada rota com dados reais.
-4. **Collector** — auto-coleta periódica (uptime, count de amostras) via
-   `scheduler.every`; retenção. Prova: amostras automáticas no H2.
-5. **Front kof-ui** — web/Index.kf (tabela + consulta + Canvas). Prova:
-   webview exibindo dados reais do backend.
+   testes `kof test`. Prova: suíte verde. ✅
+3. **API completa** — rotas + logs + erros (CORS `*` nos GET). Prova: curl
+   em cada rota com dados reais. ✅
+4. **Collector** — auto-coleta periódica via `scheduler.every`; retenção.
+   Prova: amostras automáticas no H2. ✅
+5. **Front kof-ui** — web/Index.kf (tabela de séries + seletor + gráfico
+   Canvas com área preenchida e grid). Prova: dashboard exibindo dados
+   reais do backend, troca de série redesenhando (validado no browser com
+   verificação de pixels do canvas). ✅
 6. **Documentação** — DEVELOPMENT.md (como rodar/testar), atualização deste
-   plano, registro de gaps novos do Kof descobertos no caminho.
+   plano, registro de gaps novos do Kof descobertos no caminho. ✅
 
 Condição de conclusão do MVP: ingestão via curl → consulta via curl →
-dashboard kof-ui exibindo a série com gráfico Canvas — tudo em Kof.
+dashboard kof-ui exibindo a série com gráfico Canvas — tudo em Kof. ✅
+
+### Desenho real do front (ajustado na Etapa 5)
+
+O §2 previa polling via `time.interval` e consulta por Input+Button; a
+execução mostrou que no target js da 0.3.22 o correto é **pré-carregar tudo
+no startup** (CONC003-JS-01: handlers de UI não podem usar await/spawn; e o
+http browser-side é stub — §4):
+
+- `main()` faz `await(spawn(() -> http.get(...)))` para `/api/metrics` e
+  um `/api/query/:name` por série, popular `Estado`/widgets e desenhar.
+- O handler `on("change")` do `Select` é síncrono: lê o histórico
+  pré-carregado e redesenha o Canvas — sem I/O.
+- Widgets só são manipulados dentro do corpo do `main`/lambdas dele (passar
+  widget como parâmetro de função degrada o codegen js — §4, gap 12).
 
 ## 4. Gaps do Kof a registrar (não contornar em silêncio)
 
 - `json.encode(Map)` quebrado no JVM (JDK modules) — afeta serialização de
   labels dinâmicos; workaround no KofWatch (labels string canônica).
 - `http.*` browser-side do KofJS retorna `""` (sem fetch síncrono) — afeta
-  o modo "puro browser" do dashboard; mitigação: botão de refresh + execução
-  via runner embarcado; solução definitiva é do Kof (XHR síncrono ou API
-  async), registrada para a mantenedora.
+  o modo "puro browser" do dashboard; mitigação: carregar os dados no
+  startup via runner embarcado (interação segue síncrona sobre o estado
+  pré-carregado); solução definitiva existe no compiler 0.4.0
+  (`JsRuntimeUiLayout`: fallback fetch assíncrono real que propaga Promise
+  pelo `kofSpawnResult`/`kofAwait`) — basta repacotar o binário.
 - `kof serve` sem `--deps` — backend sobe com `kof run --deps`.
+- **CONC003-JS-01** — handlers de widget (`on("change", ...)`) não podem
+  usar `await`/`spawn`/`channel.receive`: funções não marcadas `async` são
+  emitidas sem suporte a microtasks. Dados chegam via pré-carga no `main`.
+- **Estáticos js (gap novo)** — campos `static` de classe com inicializador
+  de runtime (`listOf<>()`) são emitidos no construtor de instância
+  (`this.`) e ficam `undefined` no browser. Workaround: estado como
+  variáveis locais do `main` (o compilador boxa capturas reatribuídas).
+- **Widget como parâmetro (gap novo)** — no target js, manipular um widget
+  dentro de função auxiliar que o recebe por parâmetro emite chamadas de
+  método inexistentes (`canvas.clearRect is not a function`). O mesmo
+  código inline no corpo do `main` emite as funções de runtime corretas
+  (`kofUiCanvasClearRect`). Regra: tocar widgets só no escopo do `main`.
+- **Canvas fill no js** — a API é `setFill` (o `setFillColor` do esboço
+  inicial não existe); cores `Palette.*` e `Color.rgba(r,g,b,a)`.
+- **`Double` no js é número JS** — sem `longValue()`; formatação numérica
+  via `.toString()` (sem arredondamento de centavos no front do MVP).

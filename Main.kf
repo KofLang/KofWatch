@@ -16,10 +16,12 @@ main() {
     var inicio = time.now()
 
     app.get("/api/health") {
+        headerSet("Access-Control-Allow-Origin", "*")
         return observability.health()
     }
 
     app.get("/api/info") {
+        headerSet("Access-Control-Allow-Origin", "*")
         return json.encode(InfoOut("kofwatch", "0.1.0", time.now() - inicio, totalAmostras(db)))
     }
 
@@ -31,10 +33,12 @@ main() {
     }
 
     app.get("/api/metrics") {
+        headerSet("Access-Control-Allow-Origin", "*")
         return json.encode(listarSeries(db))
     }
 
     app.get("/api/query/:name") {
+        headerSet("Access-Control-Allow-Origin", "*")
         var metrica = param("name")
         var de = parametroLong("from", 0)
         var ate = parametroLong("to", time.now())
@@ -43,6 +47,7 @@ main() {
     }
 
     app.get("/api/aggregate/:name") {
+        headerSet("Access-Control-Allow-Origin", "*")
         var nome = query("fn")
         var janela = parametroLong("windowMs", 86400000)
         var ate = time.now()

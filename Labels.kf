@@ -1,45 +1,102 @@
-String canonicalLabels(String labels) {
-    if (labels == null) { return "" }
-    var trimmed = labels.trim()
-    if (trimmed == "") { return "" }
-    var parts = trimmed.split(",")
-    var kvs = mapOf("__none__", "__none__")
-    kvs.clear()
-    for (var p in parts) {
-        var kv = p.trim()
-        if (kv == "") { continue }
-        var eq = kv.indexOf("=")
-        if (eq <= 0) { throw "label inválido: " + kv }
-        kvs.put(kv.substring(0, eq).trim(), kv.substring(eq + 1).trim())
+String canonicalLabels(String? labels) {
+    var bruto = ""
+    if (labels != null) { bruto = labels.trim() }
+    if (bruto == "") { return "" }
+    var dimensoes = mapOf<String, String>()
+    for (var parte in bruto.split(",")) {
+        var par = parte.trim()
+        if (par == "") { continue }
+        var igual = par.indexOf("=")
+        if (igual <= 0) { throw "label inválido: " + par }
+        dimensoes.put(par.substring(0, igual).trim(), par.substring(igual + 1).trim())
     }
-    var keys = kvs.keys()
-    // Ordenação por inserção: `a < b` entre Strings é Unspecified no Kof
-    // 0.3.22 (compila e sempre dá false) — compareTo é o que ordena de fato.
-    var i = 1
-    while (i < keys.size) {
-        var cur = keys.get(i)
-        var j = i - 1
-        while (j >= 0 && keys.get(j).compareTo(cur) > 0) {
-            keys.set(j + 1, keys.get(j))
-            j = j - 1
-        }
-        keys.set(j + 1, cur)
-        i = i + 1
-    }
-    var out = ""
-    var first = true
-    for (var k in keys) {
-        if (!first) { out = out + "," }
-        out = out + k + "=" + kvs.get(k)
-        first = false
-    }
-    return out
+    var chaves = dimensoes.keys()
+    ordenarStrings(chaves)
+    return juntar(chaves.map((chave: String) -> chave + "=" + dimensoes.get(chave)), ",")
 }
 
-Double toDoubleOrThrow(String s) {
+Long toLongOrThrow(String s) {
     try {
-        return s.toDouble()
+        return s.toLong()
     } catch (String e) {
-        throw "número inválido: " + s
+        throw "inteiro inválido: " + s
     }
+}
+
+void ordenarStrings(List<String> valores) {
+    var i = 1
+    while (i < valores.size) {
+        var atual = valores.get(i)
+        var j = i - 1
+        while (j >= 0 && valores.get(j).compareTo(atual) > 0) {
+            valores.set(j + 1, valores.get(j))
+            j = j - 1
+        }
+        valores.set(j + 1, atual)
+        i = i + 1
+    }
+}
+
+String juntar(List<String> partes, String separador) {
+    var saida = ""
+    for (var i = 0; i < partes.size; i = i + 1) {
+        if (i > 0) { saida = saida + separador }
+        saida = saida + partes.get(i)
+    }
+    return saida
+}
+
+test "canonicalLabels ordena as chaves" {
+    assert(canonicalLabels("b=2,a=1") == "a=1,b=2")
+}
+
+test "canonicalLabels mantém ordem já canônica" {
+    assert(canonicalLabels("a=1,b=2") == "a=1,b=2")
+}
+
+test "canonicalLabels trata nulo, vazio e só espaços" {
+    assert(canonicalLabels(null) == "")
+    assert(canonicalLabels("") == "")
+    assert(canonicalLabels("   ") == "")
+}
+
+test "canonicalLabels apara espaços de chave e valor" {
+    assert(canonicalLabels("  host = a , z = 1 ") == "host=a,z=1")
+}
+
+test "canonicalLabels ignora partes vazias" {
+    assert(canonicalLabels("a=1,,b=2,") == "a=1,b=2")
+}
+
+test "canonicalLabels: chave repetida fica com o último valor" {
+    assert(canonicalLabels("a=1,a=2") == "a=2")
+}
+
+test "canonicalLabels rejeita label sem =" {
+    var falhou = false
+    try {
+        canonicalLabels("host")
+    } catch (String e) {
+        falhou = true
+    }
+    assert(falhou)
+}
+
+test "canonicalLabels ordena mais de duas chaves" {
+    assert(canonicalLabels("z=3,m=2,a=1") == "a=1,m=2,z=3")
+}
+
+
+test "toLongOrThrow converte inteiro" {
+    assert(toLongOrThrow("1700000000000") == 1700000000000)
+}
+
+test "toLongOrThrow rejeita texto" {
+    var falhou = false
+    try {
+        toLongOrThrow("abc")
+    } catch (String e) {
+        falhou = true
+    }
+    assert(falhou)
 }

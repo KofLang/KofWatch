@@ -1,0 +1,63 @@
+entity Amostra {
+    id: Long generated
+    name: String
+    ts: Long
+    valor: Double
+    labels: String
+}
+
+void storageInit(String db) {
+    orm.create<Amostra>(db)
+    orm.migrate(db, "amostra_serie_ts", "CREATE INDEX IF NOT EXISTS amostra_serie_ts ON \"amostra\"(\"name\", \"ts\")")
+}
+
+Long registrar(String db, MetricIn entrada) {
+    var salva = orm.save(db, Amostra(0, entrada.name, entrada.ts, entrada.valor, canonicalLabels(entrada.labels))) as Amostra
+    return salva.id
+}
+
+List<SerieOut> listarSeries(String db) {
+    return db.query<SerieOut>(db, "SELECT s.\"name\" AS \"name\", s.\"labels\" AS \"labels\", s.\"valor\" AS \"valor\", s.\"ts\" AS \"ts\", g.\"total\" AS \"count\" FROM \"amostra\" s JOIN (SELECT \"name\", \"labels\", MAX(\"id\") AS \"ultimo\", COUNT(*) AS \"total\" FROM \"amostra\" GROUP BY \"name\", \"labels\") g ON s.\"id\" = g.\"ultimo\" ORDER BY s.\"name\", s.\"labels\"")
+}
+
+List<Amostra> consultarAmostras(String db, String metrica, Long de, Long ate, String rotulo) {
+    if (rotulo == "") {
+        return Amostra.query(db) {
+            where name == metrica
+            where ts >= de
+            where ts <= ate
+            orderBy ts
+        }
+    }
+    return Amostra.query(db) {
+        where name == metrica
+        where labels == rotulo
+        where ts >= de
+        where ts <= ate
+        orderBy ts
+    }
+}
+
+Double agregar(String db, String metrica, String nome, Long de, Long ate) {
+    var linhas = db.query<ValorRow>(db, "SELECT " + expressaoDe(nome) + " AS \"valor\" FROM \"amostra\" WHERE \"name\" = ? AND \"ts\" >= ? AND \"ts\" <= ?", metrica, de, ate)
+    return linhas.get(0).valor
+}
+
+String expressaoDe(String nome) {
+    switch (nome) {
+        case "avg": return "CAST(COALESCE(AVG(\"valor\"), 0) AS DOUBLE)"
+        case "sum": return "CAST(COALESCE(SUM(\"valor\"), 0) AS DOUBLE)"
+        case "min": return "CAST(COALESCE(MIN(\"valor\"), 0) AS DOUBLE)"
+        case "max": return "CAST(COALESCE(MAX(\"valor\"), 0) AS DOUBLE)"
+        case "count": return "CAST(COALESCE(COUNT(*), 0) AS DOUBLE)"
+        default: throw "agregação inválida: " + nome
+    }
+}
+
+Long totalAmostras(String db) {
+    return orm.count<Amostra>(db)
+}
+
+Int retencao(String db, Long corte) {
+    return db.execute(db, "DELETE FROM \"amostra\" WHERE \"ts\" < ?", corte)
+}

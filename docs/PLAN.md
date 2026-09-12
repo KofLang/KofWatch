@@ -2,7 +2,7 @@
 
 **Status:** em desenvolvimento
 **Data:** 11/09/2026
-**Linguagem:** Kof 0.3.0-beta (`/home/mel/Kof4j`)
+**Linguagem:** Kof 0.3.22-beta (`/home/mel/Documentos/Kof4j`)
 **Repo:** `/home/mel/KofWatch`
 
 ---
@@ -36,13 +36,26 @@ neste plano — nada aqui é suposição.
    (padrão de dados do front).
 3. **`kof serve` não carrega `--deps`** — `kof serve` não injeta o classpath
    do `kofdeps`. **Consequência:** subir o backend com `kof run --deps`.
-4. **`value` é palavra reservada no H2** — colunas de valor usam `val`.
+4. **`val` é palavra reservada da linguagem** — o campo do valor se chama
+   `valor`, e `valor` é a chave correspondente no JSON (mesma situação de `fn`).
 5. **PKG002** — um módulo (diretório raso compilado junto) aceita só um
-   `main()`. **Consequência:** um único `main()` no projeto backend.
+   `main()`. **Consequência:** um único `main()` no main.kf; as rotas ficam
+   registradas ali, sem camada `Api.kf` (ver §2).
 6. **Sem `synchronized`/locks na linguagem** — concorrência é
    `spawn`/`await`/`channel`. Escrita concorrente no H2 passa pelo handle
    único do `kof.db`; para o MVP, o volume é baixo (virtual threads + H2
    MVStore toleram; risco registrado).
+7. **`kof.web.App` não existe em runtime** — só em compile-time (em runtime
+   um app é um handle `String`), então o app não atravessa fronteira de
+   função. **Consequência:** as rotas ficam no `main()`, sem camada `Api.kf`
+   (uma camada a mais seria cerimônia).
+8. **`src/` quebra o decode tipado** — `kof.toml` + fontes em `src/` deriva
+   o package `src` no JVM, e o `json.decode<T>`/`db.query<T>` tipados não
+   resolvem o tipo do outro arquivo. **Consequência:** os fontes vivem na raiz
+   do projeto (package default) — ver §2.
+9. **`List` não tem `sort` nem `join` na stdlib (0.3.22-beta)** — a ordenação
+   canônica de labels usa contorno local isolado em Labels.kf, rotulado e
+   previsto para sumir quando a stdlib cobrir sort/join (§4).
 
 ---
 

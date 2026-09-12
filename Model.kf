@@ -1,5 +1,11 @@
-record MetricIn(String name, Double v, Long ts, String labels)
+record MetricIn(String name, Double valor, Long ts, String labels)
 
-record Amostra(Long ts, Double v)
+record SerieOut(String name, String labels, Double valor, Long ts, Long count)
 
-record Serie(String name, String labels, Double lastVal, Long lastTs, Int count)
+record ValorRow(Double valor)
+
+record IngestOut(Bool ok, Long id)
+
+record InfoOut(String name, String version, Long uptimeMs, Long amostras)
+
+record AggOut(String funcao, Double valor)

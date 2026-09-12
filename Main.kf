@@ -1,7 +1,57 @@
+application {
+    onStart { log.info("kofwatch subindo") }
+    onShutdown { log.info("kofwatch saindo") }
+}
+
+Long parametroLong(String chave, Long padrao) {
+    var bruto = query(chave)
+    if (bruto == null || bruto == "") { return padrao }
+    return toLongOrThrow(bruto)
+}
+
 main() {
     var app = web.app()
+    var db = db.connect(config.str("db.url", "jdbc:h2:./data/kofwatch;AUTO_SERVER=TRUE"))
+    storageInit(db)
+    var inicio = time.now()
+
     app.get("/api/health") {
         return observability.health()
     }
+
+    app.get("/api/info") {
+        return json.encode(InfoOut("kofwatch", "0.1.0", time.now() - inicio, totalAmostras(db)))
+    }
+
+    app.post("/api/metrics") {
+        var entrada = json.decode<MetricIn>(body())
+        var id = registrar(db, entrada)
+        log.info("amostra " + entrada.name + " id=" + id)
+        return status(201, json.encode(IngestOut(true, id)))
+    }
+
+    app.get("/api/metrics") {
+        return json.encode(listarSeries(db))
+    }
+
+    app.get("/api/query/:name") {
+        var metrica = param("name")
+        var de = parametroLong("from", 0)
+        var ate = parametroLong("to", time.now())
+        log.info("consulta " + metrica)
+        return json.encode(consultarAmostras(db, metrica, de, ate, canonicalLabels(query("labels"))))
+    }
+
+    app.get("/api/aggregate/:name") {
+        var nome = query("fn")
+        var janela = parametroLong("windowMs", 86400000)
+        var ate = time.now()
+        return json.encode(AggOut(nome, agregar(db, param("name"), nome, ate - janela, ate)))
+    }
+
+    scheduler.every(config.int("retention.checkMs", 3600000)) {
+        log.info("retenção: " + retencao(db, time.now() - config.int("retention.ms", 86400000)) + " amostras removidas")
+    }
+
     app.listen(config.int("server.port", 8080))
 }

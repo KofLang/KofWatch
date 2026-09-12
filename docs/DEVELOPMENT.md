@@ -42,17 +42,7 @@ curl -s -X POST localhost:8080/api/metrics \
 
 ## Rodando o dashboard
 
-### Webview nativo (caminho principal)
-
-```bash
-flatpak-spawn --host env DISPLAY=:0 \
-  $KOF run --target=js web/Index.kf
-```
-
-O dashboard carrega as séries e o histórico de cada uma no startup e
-desenha o gráfico da primeira; o `Select` troca a série desenhada.
-
-### Browser (modo prova)
+### Browser (modo principal)
 
 ```bash
 $KOF build web --target js --output /tmp/kofbuild
@@ -60,10 +50,27 @@ python3 -m http.server 8099 --directory /tmp/kofbuild
 # abrir http://127.0.0.1:8099/
 ```
 
-No browser puro, o `http.get` do runtime 0.3.22 é um stub que devolve
-`""` — o build 0.4.0 do compiler traz o fallback fetch real. Enquanto o
-binário não é repacotado, o caminho principal é o webview (o `main` roda no
-GraalJS embarcado, com interop Java para HTTP).
+No browser, o dashboard é ao vivo: um `time.interval(3000)` e o botão
+"atualizar" disparam blocos `spawn { ... }` que rebuscam `/api/metrics` e
+`/api/query/:name`, atualizam a tabela/select e redesenham o canvas.
+O backend precisa estar de pé na 8080 (CORS já aberto nos GETs).
+
+Alternativa webview nativo (GraalJS embarcado + WebKitGTK):
+
+```bash
+flatpak-spawn --host env DISPLAY=:0 \
+  $KOF run --target=js web/Index.kf
+```
+
+- A toolchain 0.3.22-beta emite um stub `""` no `http` browser-side (o
+  fallback do `kof-runtime.mjs` gerado não faz fetch). No browser, o build
+  precisa do patch manual: substituir o corpo do bloco
+  "Fallback to fetch" por `return fetch(url, { method, headers, body,
+  signal })...` real. Cheque com `grep -c "return fetch" kof-runtime.mjs`
+  no build (0 = sem patch, dashboard não carrega dados).
+  No webview nativo não precisa: o I/O resolve via interop Java.
+- Handlers/timers não aceitam `await` direto (CONC003-JS-01); a forma
+  permitida é `spawn { ... await(...) ... }` em bloco.
 
 ## Testes
 
@@ -83,13 +90,14 @@ Main.kf    main() único: config, db.connect, rotas app.get/post, scheduler
 Model.kf   records de domínio (MetricIn, Serie, Amostra, agregações)
 Storage.kf DDL/insert/query/agregação/retenção sobre o handle do kof.db
 Labels.kf  canonicalização "k=v,k=v" ordenada (contorno: List sem sort)
-web/Index.kf  dashboard kof-ui: pré-carga HTTP no main, Table+Select+Canvas
+web/Index.kf  dashboard kof-ui ao vivo: polling 3s + botão de refresh,
+              Table+Select+Canvas, I/O em spawn { } de bloco
 ```
 
 Regras que o codepen js da 0.3.22 impõe ao front (ver PLAN.md §4):
 
-- Handlers de widget não fazem I/O (CONC003-JS-01): dados pré-carregados no
-  `main` via `await(spawn(...))`.
+- Handlers de widget e ticks de `time.interval` não fazem `await` direto
+  (CONC003-JS-01): I/O vai em `spawn { ... await(...) ... }` de bloco.
 - Widgets só são tocados no escopo do `main`/lambdas dele.
 - Estado entre eventos: variáveis locais capturadas (estáticos com
   inicializador ficam `undefined` no browser).

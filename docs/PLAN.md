@@ -202,20 +202,46 @@ http browser-side é stub — §4):
 - Widgets só são manipulados dentro do corpo do `main`/lambdas dele (passar
   widget como parâmetro de função degrada o codegen js — §4, gap 12).
 
+### Dashboard ao vivo (ajustado depois da Etapa 6)
+
+Probes empíricos no browser mudaram três premissas (validados com
+`kof build` + `http.server` + Playwright):
+
+1. **`time.interval` FUNCIONA no target js** — a doc/stdlib lista
+   "JVM+Native", mas `kofTimeInterval` no runtime js emite `setInterval`
+   nativo do browser (probe: 21+ ticks sem falha).
+2. **`await` direto em handler/timer continua proibido** (CONC003-JS-01 no
+   compile), mas **`spawn { ... }` de bloco é permitido dentro deles** e o
+   `await(http...)` interno gera async real — o fetch propaga pela Promise.
+   É assim que o dashboard rebusca dados: clique no botão "atualizar" e o
+   tick de 3s disparam `spawn { }` que recarrega séries+histórico,
+   atualiza tabela/select e redesenha o canvas.
+3. **O fallback fetch do runtime gerado segue stub** — build fresco da
+   0.3.22-beta (12/09) ainda emite `return ""` no bloco "Fallback to
+   fetch" do `kof-runtime.mjs`. Para o modo browser, o build precisa do
+   patch manual (bloco → `fetch(url, {method, headers, body, signal})`
+   real); com o patch, o `spawn { await(http.get(...)) }` funciona pois a
+   Promise propaga pelo `kofSpawnResult`/`kofAwait`. No webview nativo o
+   I/O resolve via interop Java e o patch é desnecessário.
+
+Prova de atualização automática: ingerido `temp.cpu` via curl; no tick
+seguinte (pulso 20) a série apareceu sozinha na tabela e no select, sem
+reload da página. Canvas verificado por contagem de pixels (57.978 pintados).
+
 ## 4. Gaps do Kof a registrar (não contornar em silêncio)
 
 - `json.encode(Map)` quebrado no JVM (JDK modules) — afeta serialização de
   labels dinâmicos; workaround no KofWatch (labels string canônica).
-- `http.*` browser-side do KofJS retorna `""` (sem fetch síncrono) — afeta
-  o modo "puro browser" do dashboard; mitigação: carregar os dados no
-  startup via runner embarcado (interação segue síncrona sobre o estado
-  pré-carregado); solução definitiva existe no compiler 0.4.0
-  (`JsRuntimeUiLayout`: fallback fetch assíncrono real que propaga Promise
-  pelo `kofSpawnResult`/`kofAwait`) — basta repacotar o binário.
+- `http.*` browser-side: segue **stub `""` na 0.3.22-beta** (build fresco de
+  12/09 confirmado). O browser precisa do patch manual no `kof-runtime.mjs`
+  (bloco "Fallback to fetch" → `fetch(...)` real; a Promise propaga pelo
+  `kofSpawnResult`/`kofAwait` e o `spawn { await(...) }` funciona). No
+  webview não precisa: o I/O resolve via interop Java HttpClient.
 - `kof serve` sem `--deps` — backend sobe com `kof run --deps`.
-- **CONC003-JS-01** — handlers de widget (`on("change", ...)`) não podem
-  usar `await`/`spawn`/`channel.receive`: funções não marcadas `async` são
-  emitidas sem suporte a microtasks. Dados chegam via pré-carga no `main`.
+- **CONC003-JS-01** — handlers de widget (`on("change", ...)`) e callbacks
+  de `time.interval` não podem usar `await` direto/`spawn()`/`channel.receive`.
+  A forma permitida é o **bloco** `spawn { ... }` com `await(...)` dentro —
+  é o mecanismo de atualização ao vivo do dashboard (§3, "Dashboard ao vivo").
 - **Estáticos js (gap novo)** — campos `static` de classe com inicializador
   de runtime (`listOf<>()`) são emitidos no construtor de instância
   (`this.`) e ficam `undefined` no browser. Workaround: estado como

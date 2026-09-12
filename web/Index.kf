@@ -1,0 +1,178 @@
+record SerieOut(String name, String labels, Double valor, Long ts, Long count)
+
+record AmostraIn(Long ts, Double valor, String labels)
+
+class Estado {
+    static String base = "http://localhost:8080"
+    static String metricaSelecionada = ""
+    static List<Double> pontos = listOf<Double>()
+    static List<SerieOut> series = listOf<SerieOut>()
+}
+
+List<List<String> > linhasDe(List<SerieOut> series) {
+    var linhas = listOf<List<String> >()
+    for (var s in series) {
+        var linha = listOf<String>()
+        linha.add(s.name)
+        linha.add(s.labels)
+        linha.add(formatar(s.valor))
+        linha.add(s.count.toString())
+        linhas.add(linha)
+    }
+    return linhas
+}
+
+List<String> nomesDe(List<SerieOut> series) {
+    var nomes = listOf<String>()
+    for (var s in series) { nomes.add(s.name) }
+    return nomes
+}
+
+List<Double> valoresDe(String nome) {
+    var bruto = http.get(Estado.base + "/api/query/" + nome)
+    var amostras = json.decode<List<AmostraIn>>(bruto)
+    var pontos = listOf<Double>()
+    for (var a in amostras) {
+        pontos.add(a.valor)
+    }
+    return pontos
+}
+
+String statusDaSerie(List<Double> pontos) {
+    if (pontos.size < 2) { return "" }
+    var minimo = pontos.get(0)
+    var maximo = minimo
+    for (var p in pontos) {
+        if (p < minimo) { minimo = p }
+        if (p > maximo) { maximo = p }
+    }
+    return formatar(minimo) + " a " + formatar(maximo)
+}
+
+String formatar(Double v) {
+    var inteiro = v.longValue()
+    var centavos = ((v - inteiro) * 100).longValue()
+    if (centavos < 0) { centavos = -centavos }
+    var doisDigitos = "" + centavos
+    if (centavos < 10) { doisDigitos = "0" + doisDigitos }
+    return inteiro + "," + doisDigitos
+}
+
+main() {
+    var janela = Window("KofWatch")
+    janela.theme = Theme.dark()
+    janela.size(520, 620)
+
+    var titulo = Label("KofWatch")
+    titulo.fontSize = 20
+    titulo.bold = true
+
+    var status = Label("carregando...")
+    status.color = Palette.gray
+
+    var rotuloSerie = Label("")
+    rotuloSerie.color = Palette.cyan
+
+    var tabela = Table(listOf("metrica", "labels", "ultimo", "amostras"), listOf<List<String> >())
+    var seletor = Select(listOf("..."))
+    var canvas = Canvas(420, 200)
+
+    var colunaConsulta = Column(listOf(
+        titulo,
+        status,
+        tabela,
+        Hr(),
+        seletor,
+        Row(listOf(
+            Button("atualizar", () -> {
+                try {
+                    var bruto = http.get(Estado.base + "/api/metrics")
+                    Estado.series = json.decode<List<SerieOut>>(bruto)
+                    tabela.setRows(linhasDe(Estado.series))
+                    seletor.setOptions(nomesDe(Estado.series))
+                    status.text = "atualizado"
+                    status.color = Palette.green
+                } catch (String e) {
+                    status.text = "backend indisponivel: " + e
+                    status.color = Palette.red
+                }
+            }),
+            Button("desenhar", () -> {
+                var pontos = valoresDe(Estado.metricaSelecionada)
+                rotuloSerie.text = Estado.metricaSelecionada + ": " + statusDaSerie(pontos)
+                canvas.clear()
+                if (pontos.size >= 2) {
+                    var minimo = pontos.get(0)
+                    var maximo = minimo
+                    for (var p in pontos) {
+                        if (p < minimo) { minimo = p }
+                        if (p > maximo) { maximo = p }
+                    }
+                    var altura = maximo - minimo
+                    if (altura == 0.0) { altura = 1.0 }
+                    var largura = (420.0 / (pontos.size - 1)).longValue().toDouble()
+                    canvas.setStroke(Palette.cyan)
+                    canvas.setLineWidth(2)
+                    canvas.beginPath()
+                    var indice = 0
+                    for (var p in pontos) {
+                        var x = indice * largura
+                        var y = 200 - (40 + ((p - minimo) / altura) * 120)
+                        if (indice == 0) {
+                            canvas.moveTo(x, y)
+                        } else {
+                            canvas.lineTo(x, y)
+                        }
+                        indice = indice + 1
+                    }
+                    canvas.stroke()
+                }
+            })
+        )),
+        rotuloSerie,
+        canvas
+    ))
+
+    var painel = View(Style(Theme.dark().surface(), Theme.dark().text(), 12, 6))
+    painel.bind(colunaConsulta)
+    janela.bind(painel)
+
+    seletor.on("change", (e: Event) -> {
+        var indice = seletor.selected()
+        if (indice >= 0 && indice < Estado.series.size) {
+            Estado.metricaSelecionada = Estado.series.get(indice).name
+        }
+    })
+
+    var inicial = spawn(() -> {
+        try {
+            var bruto = http.get(Estado.base + "/api/metrics")
+            Estado.series = json.decode<List<SerieOut>>(bruto)
+            tabela.setRows(linhasDe(Estado.series))
+            seletor.setOptions(nomesDe(Estado.series))
+            status.text = "atualizado"
+            status.color = Palette.green
+            if (Estado.series.size > 0) {
+                Estado.metricaSelecionada = Estado.series.get(0).name
+                seletor.setSelected(0)
+            }
+        } catch (String e) {
+            status.text = "backend indisponivel: " + e
+            status.color = Palette.red
+        }
+        time.interval(5000, () -> {
+            try {
+                var bruto = http.get(Estado.base + "/api/metrics")
+                Estado.series = json.decode<List<SerieOut>>(bruto)
+                tabela.setRows(linhasDe(Estado.series))
+                status.text = "atualizado"
+                status.color = Palette.green
+            } catch (String e) {
+                status.text = "backend indisponivel: " + e
+                status.color = Palette.red
+            }
+        })
+    })
+    await(inicial)
+    janela.show()
+}

@@ -1,0 +1,205 @@
+record PainelManifest(String title, String type, String metric, Long fromMs, Long windowMs)
+
+record DashboardManifest(String name, String title, Long refreshMs, List<PainelManifest> panels)
+
+record Painel(String title, String type, String metric, Long fromMs, Long windowMs)
+
+record Dashboard(String name, String title, Long refreshMs, List<Painel> panels)
+
+record DashboardResumo(String name, String title, Long panels, String erro)
+
+Int digitoValido(String c) {
+    val validos = setOf(
+        "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+        "a", "b", "c", "d", "e", "f", "g", "h", "i", "j",
+        "k", "l", "m", "n", "o", "p", "q", "r", "s", "t",
+        "u", "v", "w", "x", "y", "z", ".", "_", "-"
+    )
+    return validos.contains(c)
+}
+
+String? erroDeNome(String nome) {
+    if (nome == null) { return "name é obrigatório" }
+    var limpo = nome.trim()
+    if (limpo == "") { return "name é obrigatório" }
+    if (limpo.length > 64) { return "name muito longo (máx 64): " + limpo }
+    var i = 0
+    while (i < limpo.length) {
+        if (digitoValido(limpo.substring(i, i + 1)) == false) {
+            return "name inválido (use a-z, 0-9, ., _, -): " + limpo
+        }
+        i = i + 1
+    }
+    return null
+}
+
+List<String> errosDePainel(PainelManifest painel, Int indice) {
+    var erros = listOf<String>()
+    var onde = "panels[" + indice.toString() + "]"
+    if (painel.title == null) {
+        erros.add(onde + ".title é obrigatório")
+    } else if (painel.title.trim() == "") {
+        erros.add(onde + ".title é obrigatório")
+    }
+    if (painel.type == null) {
+        erros.add(onde + ".type é obrigatório (timeseries | gauge)")
+    } else if (painel.type.trim() == "") {
+        erros.add(onde + ".type é obrigatório (timeseries | gauge)")
+    } else if (painel.type != "timeseries" && painel.type != "gauge") {
+        erros.add(onde + ".type inválido: " + painel.type)
+    }
+    if (painel.metric == null) {
+        erros.add(onde + ".metric é obrigatório")
+    } else if (painel.metric.trim() == "") {
+        erros.add(onde + ".metric é obrigatório")
+    }
+    if (painel.fromMs != null) {
+        if (painel.fromMs < 0) {
+            erros.add(onde + ".fromMs não pode ser negativo")
+        }
+    }
+    if (painel.windowMs != null) {
+        if (painel.windowMs < 0) {
+            erros.add(onde + ".windowMs não pode ser negativo")
+        }
+    }
+    return erros
+}
+
+List<String> validarManifest(DashboardManifest bruto) {
+    var erros = listOf<String>()
+    var erroNome = erroDeNome(bruto.name)
+    if (erroNome != null) {
+        erros.add(erroNome)
+    }
+    if (bruto.title == null) {
+        erros.add("title é obrigatório")
+    } else if (bruto.title.trim() == "") {
+        erros.add("title é obrigatório")
+    }
+    if (bruto.refreshMs != null) {
+        if (bruto.refreshMs < 500) {
+            erros.add("refreshMs deve ser >= 500")
+        }
+    }
+    if (bruto.panels == null) {
+        erros.add("panels é obrigatório (mínimo 1 painel)")
+        return erros
+    }
+    if (bruto.panels.size == 0) {
+        erros.add("panels é obrigatório (mínimo 1 painel)")
+        return erros
+    }
+    var i = 0
+    while (i < bruto.panels.size) {
+        var errosPainel = errosDePainel(bruto.panels.get(i), i)
+        var j = 0
+        while (j < errosPainel.size) {
+            erros.add(errosPainel.get(j))
+            j = j + 1
+        }
+        i = i + 1
+    }
+    return erros
+}
+
+Painel normalizarPainel(PainelManifest bruto) {
+    var de = bruto.fromMs
+    if (de == null || de <= 0) { de = 3600000 }
+    var janela = bruto.windowMs
+    if (janela == null || janela <= 0) { janela = 60000 }
+    var tipo = bruto.type
+    if (tipo != "gauge") { tipo = "timeseries" }
+    return Painel(bruto.title.trim(), tipo, bruto.metric.trim(), de, janela)
+}
+
+Dashboard normalizarManifest(DashboardManifest bruto) {
+    var refresco = bruto.refreshMs
+    if (refresco == null || refresco < 500) { refresco = 3000 }
+    var paineis = listOf<Painel>()
+    var brutoPaineis = bruto.panels
+    if (brutoPaineis == null) {
+        brutoPaineis = listOf<PainelManifest>()
+    }
+    var i = 0
+    while (i < brutoPaineis.size) {
+        paineis.add(normalizarPainel(brutoPaineis.get(i)))
+        i = i + 1
+    }
+    var nome = bruto.name
+    if (nome == null) { nome = "" }
+    var titulo = bruto.title
+    if (titulo == null) { titulo = "" }
+    return Dashboard(nome, titulo, refresco, paineis)
+}
+
+List<Dashboard> carregarManifestos(String diretorio) {
+    var validos = listOf<Dashboard>()
+    if (Directory(diretorio).exists() == false) {
+        return validos
+    }
+    var nomes = Directory(diretorio).list()
+    var i = 0
+    while (i < nomes.size) {
+        var arquivo = nomes.get(i)
+        if (arquivo.endsWith(".json")) {
+            var caminho = diretorio + "/" + arquivo
+            var bruto = File(caminho).readText()
+            if (bruto == null) {
+                log.warn("manifesto ilegível ignorado: " + caminho)
+            } else {
+                try {
+                    var manifesto = json.decode<DashboardManifest>(bruto)
+                    var erros = validarManifest(manifesto)
+                    if (erros.size > 0) {
+                        log.warn("manifesto inválido ignorado (" + caminho + "): " + erros.get(0))
+                    } else {
+                        var nomeArquivo = arquivo.substring(0, arquivo.length - 5)
+                        var nomeManifesto = manifesto.name
+                        if (nomeManifesto == null) { nomeManifesto = "" }
+                        if (nomeArquivo != nomeManifesto) {
+                            log.warn("manifesto " + caminho + " ignorado: name difere do arquivo (esperado " + nomeManifesto + ".json)")
+                        } else {
+                            validos.add(normalizarManifest(manifesto))
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("manifesto com JSON inválido ignorado: " + caminho)
+                }
+            }
+        }
+        i = i + 1
+    }
+    return validos
+}
+
+Dashboard? buscarManifesto(String diretorio, String nome) {
+    if (nome == null) { return null }
+    if (erroDeNome(nome) != null) { return null }
+    var todos = carregarManifestos(diretorio)
+    var i = 0
+    while (i < todos.size) {
+        if (todos.get(i).name == nome) {
+            return todos.get(i)
+        }
+        i = i + 1
+    }
+    return null
+}
+
+List<DashboardResumo> resumirManifestos(List<Dashboard> todos) {
+    var resumos = listOf<DashboardResumo>()
+    var i = 0
+    while (i < todos.size) {
+        var d = todos.get(i)
+        var paineis = d.panels
+        var quantidade = 0
+        if (paineis == null) {
+            paineis = listOf<Painel>()
+        }
+        quantidade = paineis.size
+        resumos.add(DashboardResumo(d.name, d.title, quantidade, null))
+        i = i + 1
+    }
+    return resumos
+}

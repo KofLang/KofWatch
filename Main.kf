@@ -68,6 +68,40 @@ main() {
         return json.encode(InfoOut("kofwatch", "0.1.0", time.now() - inicio, totalAmostras(db)))
     }
 
+    app.get("/api/dashboards") {
+        headerSet("Access-Control-Allow-Origin", "*")
+        var todos = carregarManifestos(config.str("dashboards.dir", "dashboards"))
+        return json.encode(resumirManifestos(todos))
+    }
+
+    app.get("/api/dashboard/:name") {
+        headerSet("Access-Control-Allow-Origin", "*")
+        var nome = param("name")
+        var erroNome = erroDeNome(nome)
+        if (erroNome != null) {
+            return status(400, json.encode(ErroOut(erroNome)))
+        }
+        var d = buscarManifesto(config.str("dashboards.dir", "dashboards"), nome)
+        if (d != null) {
+            return json.encode(d)
+        }
+        return status(404, json.encode(ErroOut("dashboard não encontrado: " + nome)))
+    }
+
+    app.get("/api/dashboard/:name/panels") {
+        headerSet("Access-Control-Allow-Origin", "*")
+        var nome = param("name")
+        var erroNome = erroDeNome(nome)
+        if (erroNome != null) {
+            return status(400, json.encode(ErroOut(erroNome)))
+        }
+        var d = buscarManifesto(config.str("dashboards.dir", "dashboards"), nome)
+        if (d != null) {
+            return json.encode(d.panels)
+        }
+        return status(404, json.encode(ErroOut("dashboard não encontrado: " + nome)))
+    }
+
     app.post("/api/metrics") {
         var entrada: MetricaIn?
         try {

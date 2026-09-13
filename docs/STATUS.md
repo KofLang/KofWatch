@@ -1,11 +1,27 @@
 # KofWatch — Estado Atual
 
-**Atualizado em:** 12/09/2026
+**Atualizado em:** 13/09/2026
 **Fonte da verdade:** este arquivo resume o estado; detalhes em
 [PLAN.md](PLAN.md) (decisões e gaps) e [DEVELOPMENT.md](DEVELOPMENT.md)
 (como rodar).
 
 ## O que está pronto e provado
+
+- **Fase 2 — Observabilidade declarativa: pipeline de manifestos COMPLETO
+  e validado end-to-end (13/09)** — dashboards declarados em JSON no Git
+  (`dashboards/system.json`), carregados por `Manifest.kf`
+  (`carregarManifestos` → validação → normalização → runtime model) e
+  servidos pelo backend: `GET /api/dashboards` (resumo), 
+  `GET /api/dashboard/:name` (Dashboard completo, 404 se não existe, 400
+  se nome inválido). Prova: curl nos 4 caminhos com o manifesto real —
+  3 painéis decodificados do arquivo, normalização aplicada (gauge
+  recebeu `fromMs=3600000`, timeseries recebeu `windowMs=60000`), sem
+  regressão em health/info/metrics.
+- **Convenção do manifesto (workaround do gap do decoder)** — todo painel
+  declara SEMPRE `fromMs` e `windowMs`; `0` significa "não se aplica" e
+  `normalizarPainel` mapeia `0`/nulo para os padrões (3600000/60000);
+  validação rejeita só negativos. Causa raiz: `json.decode` em record
+  NPEia com campo `Long` ausente no JSON (PLAN §4, gap 13/09).
 
 - **Backend JVM completo** (`Main.kf` + `Model.kf` + `Storage.kf`):
   ingestão e consulta de séries temporais em H2 em arquivo
@@ -74,12 +90,30 @@ seguinte) e botão atualizar, tudo sem erros no console.
 7. Suíte de testes multi-arquivo: `kof test <dir>` compila cada arquivo
    isolado e falha em dependências (ver PLAN §4); cobrir rotas com
    bateria curl em script.
+8. Front ainda não consome `/api/dashboard/:name` — o dashboard kof-ui
+   continua listando séries cruas (`/api/metrics` + `/api/query`);
+   próximo passo da Fase 2 é renderizar os painéis do manifesto
+   (timeseries + gauge) a partir do manifesto.
+
+## Lições de execução Kof (13/09)
+
+- `kof script` (.ks) não resolve `File`/`kof.io` (SEM011) e rejeita
+  `import` (PARSE041): todo teste de leitura de arquivo via .ks alimenta
+  `decode(null)`. Testar File/JSON sempre com `.kf` + `kof run`.
+- `json.decode` em record com campo `Long` ausente no JSON → NPE no
+  `kof_json_bind` (PLAN §4); comportamento difere entre modos (`kof run`
+  vs `kof script`).
+- Indexar lista decodificada com `[i]` gera `VerifyError` (aaload sobre
+  ArrayList) — usar `for-in`.
 
 ## Como está rodando agora (ambiente desta sessão)
 
 - Backend: porta 8080, banco limpo com 3 séries de semeadura
   (cpu.busy, gpu.temp, mem) + validação Etapa A ativa; concorrência
   provada (20 POST + 20 GET paralelos, 20/20 amostras persistidas).
+  Desde 13/09 também serve os manifestos: `/api/dashboards` e
+  `/api/dashboard/system` ativos, manifesto `dashboards/system.json`
+  com 3 painéis (CPU ocupada, GPU temperatura, Memória).
 - Dashboard: `./scripts/build-dashboard.sh /tmp/kofwatch-dash-test` +
   `python3 -m http.server 8765 --directory /tmp/kofwatch-dash-test`
   — http://localhost:8765/ (build COM patch automático do fetch).

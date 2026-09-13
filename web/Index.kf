@@ -2,50 +2,32 @@ record SerieOut(String name, String labels, Double valor, Long ts, Long count)
 
 record AmostraIn(Long ts, Double valor, String labels)
 
-List<List<String> > linhasDe(List<SerieOut> series) {
-    var linhas = listOf<List<String> >()
-    for (var s in series) {
-        var linha = listOf<String>()
-        linha.add(s.name)
-        linha.add(s.labels)
-        linha.add(s.valor.toString())
-        linha.add(s.count.toString())
-        linhas.add(linha)
-    }
-    return linhas
-}
+record AggOut(String funcao, Double valor)
 
-List<String> nomesDe(List<SerieOut> series) {
-    var nomes = listOf<String>()
-    for (var s in series) {
-        nomes.add(s.name)
-    }
-    return nomes
-}
+record PainelFront(String title, String type, String metric, Long fromMs, Long windowMs)
 
-List<Double> valoresDe(List<AmostraIn> amostras) {
+record DashboardFront(String name, String title, Long refreshMs, List<PainelFront> panels)
+
+record DashboardResumoFront(String name, String title, Long panels, String erro)
+
+List<Double> valoresDeTexto(String bruto) {
     var valores = listOf<Double>()
+    if (bruto == null || bruto == "") {
+        return valores
+    }
+    var amostras = json.decode<List<AmostraIn>>(bruto)
     for (var a in amostras) {
-        valores.add(a.valor)
+        valores.add(a.valor())
     }
     return valores
 }
 
-String resumo(List<Double> pontos) {
-    if (pontos.size == 0) {
-        return "sem amostras"
+Double valorDeGaugeTexto(String bruto) {
+    if (bruto == null || bruto == "") {
+        return 0.0
     }
-    var minimo = pontos.get(0)
-    var maximo = minimo
-    for (var p in pontos) {
-        if (p < minimo) {
-            minimo = p
-        }
-        if (p > maximo) {
-            maximo = p
-        }
-    }
-    return minimo.toString() + " a " + maximo.toString()
+    var agg = json.decode<AggOut>(bruto)
+    return agg.valor()
 }
 
 List<List<Double> > traco(List<Double> pontos) {
@@ -54,7 +36,7 @@ List<List<Double> > traco(List<Double> pontos) {
         return coordenadas
     }
     var largura = 508.0
-    var altura = 240.0
+    var altura = 200.0
     var margem = 24.0
     var minimo = pontos.get(0)
     var maximo = minimo
@@ -82,22 +64,109 @@ List<List<Double> > traco(List<Double> pontos) {
     return coordenadas
 }
 
+String resumoDe(List<Double> pontos) {
+    if (pontos.size == 0) {
+        return "sem amostras"
+    }
+    var minimo = pontos.get(0)
+    var maximo = minimo
+    for (var p in pontos) {
+        if (p < minimo) {
+            minimo = p
+        }
+        if (p > maximo) {
+            maximo = p
+        }
+    }
+    return minimo.toString() + " a " + maximo.toString()
+}
+
+void desenhaPainel(Canvas c, PainelFront p, List<Double> pontos) {
+    c.clear()
+    if (p.type() == "gauge") {
+        var valor = 0.0
+        if (pontos.size > 0) {
+            valor = pontos.get(0)
+        }
+        var fracao = valor
+        if (fracao < 0.0) {
+            fracao = 0.0
+        }
+        if (fracao > 1.0) {
+            fracao = 1.0
+        }
+        c.setStroke(Palette.gray)
+        c.setLineWidth(12)
+        c.beginPath()
+        c.arc(254.0, 130.0, 80.0, 3.14159, 6.28318)
+        c.stroke()
+        if (fracao > 0.0) {
+            c.setStroke(Palette.cyan)
+            c.beginPath()
+            c.arc(254.0, 130.0, 80.0, 3.14159, 3.14159 + fracao * 3.14159)
+            c.stroke()
+        }
+        c.setFill(Palette.cyan)
+        c.fillText(valor.toString(), 234.0, 138.0)
+    } else {
+        var tracado = traco(pontos)
+        c.setStroke(Palette.gray)
+        c.setLineWidth(1)
+        var g = 0
+        while (g < 4) {
+            var y = 24.0 + g * 50.0
+            c.beginPath()
+            c.moveTo(24.0, y)
+            c.lineTo(484.0, y)
+            c.stroke()
+            g = g + 1
+        }
+        if (tracado.size > 1) {
+            c.setFill(Color.rgba(0, 200, 255, 40))
+            c.beginPath()
+            c.moveTo(tracado.get(0).get(0), 176.0)
+            var k = 0
+            while (k < tracado.size) {
+                c.lineTo(tracado.get(k).get(0), tracado.get(k).get(1))
+                k = k + 1
+            }
+            c.lineTo(tracado.get(tracado.size - 1).get(0), 176.0)
+            c.closePath()
+            c.fill()
+            c.setStroke(Palette.cyan)
+            c.setLineWidth(2)
+            c.beginPath()
+            c.moveTo(tracado.get(0).get(0), tracado.get(0).get(1))
+            var k2 = 1
+            while (k2 < tracado.size) {
+                c.lineTo(tracado.get(k2).get(0), tracado.get(k2).get(1))
+                k2 = k2 + 1
+            }
+            c.stroke()
+        }
+        c.setFill(Palette.gray)
+        c.fillText(resumoDe(pontos), 24.0, 16.0)
+    }
+}
+
 main() {
     var base = "http://localhost:8080"
-    var nomes = listOf<String>()
-    var historico = listOf<List<Double> >()
+    var nomesDash = listOf<String>()
+    var paineis = listOf<PainelFront>()
+    var dados = listOf<List<Double> >()
+    var canvases = listOf<Canvas>()
     var pulso = 0
 
     var janela = Window("KofWatch")
     janela.theme = Theme.dark()
-    janela.size(560, 720)
+    janela.size(560, 760)
 
     var titulo = Label("KofWatch")
     titulo.fontSize = 22
     titulo.bold = true
     titulo.color = Palette.cyan
 
-    var subtitulo = Label("observador de metricas")
+    var subtitulo = Label("dashboards declarativos")
     subtitulo.color = Palette.gray
 
     var status = Label("carregando " + base + " ...")
@@ -105,85 +174,88 @@ main() {
 
     var cabecalho = Row(listOf(titulo, subtitulo))
 
-    var rotuloTabela = Label("series")
-    rotuloTabela.fontSize = 13
-    rotuloTabela.bold = true
+    var rotuloDashboards = Label("dashboards")
+    rotuloDashboards.fontSize = 13
+    rotuloDashboards.bold = true
 
-    var tabela = Table(listOf("metrica", "labels", "ultimo", "amostras"), listOf<List<String> >())
-
-    var rotuloGrafico = Label("historico")
-    rotuloGrafico.fontSize = 13
-    rotuloGrafico.bold = true
-
-    var seletor = Select(listOf("..."))
-    var rotuloSerie = Label("")
-    rotuloSerie.color = Palette.cyan
+    var seletorDash = Select(listOf("..."))
 
     var botaoAtualizar = Button("atualizar")
 
-    var canvas = Canvas(508, 240)
+    var rotuloPaineis = Label("paineis")
+    rotuloPaineis.fontSize = 13
+    rotuloPaineis.bold = true
 
-    var painel = View(Style(Theme.dark().background(), Theme.dark().text(), 16, 10))
-    painel.bind(Column(listOf(cabecalho, status, Hr(), rotuloTabela, tabela, Hr(), botaoAtualizar, seletor, rotuloSerie, canvas)))
-    janela.bind(painel)
+    var zonaPaineis = View(Style(Theme.dark().background(), Theme.dark().text(), 8, 4))
+
+    var colunas = listOf<Column>()
+
+    var painelRaiz = View(Style(Theme.dark().background(), Theme.dark().text(), 16, 10))
+    painelRaiz.bind(Column(listOf(cabecalho, status, Hr(), rotuloDashboards, seletorDash, botaoAtualizar, Hr(), rotuloPaineis, zonaPaineis)))
+    janela.bind(painelRaiz)
 
     try {
-        var bruto = await(spawn(() -> http.get(base + "/api/metrics")))
-        var series = json.decode<List<SerieOut>>(bruto)
-        nomes = nomesDe(series)
-        tabela.setRows(linhasDe(series))
-        seletor.setOptions(nomes)
-
-        var i = 0
-        while (i < series.size) {
-            var nome = series.get(i).name
-            var brutoSerie = await(spawn(() -> http.get(base + "/api/query/" + nome)))
-            var amostras = json.decode<List<AmostraIn>>(brutoSerie)
-            historico.add(valoresDe(amostras))
-            i = i + 1
+        var bruto = await(spawn(() -> http.get(base + "/api/dashboards")))
+        var resumos = json.decode<List<DashboardResumoFront>>(bruto)
+        var nomes = listOf<String>()
+        for (var r in resumos) {
+            nomes.add(r.name())
         }
+        nomesDash = nomes
+        if (nomes.size == 0) {
+            status.text = "nenhum dashboard declarado em dashboards/"
+            status.color = Palette.red
+        } else {
+            seletorDash.setOptions(nomes)
+            seletorDash.setSelected(0)
 
-        status.text = nomes.size.toString() + " series ativas em " + base
-        status.color = Palette.green
+            var brutoDash = await(spawn(() -> http.get(base + "/api/dashboard/" + nomes.get(0))))
+            if (brutoDash == null || brutoDash == "") {
+                status.text = "dashboard nao encontrado: " + nomes.get(0)
+                status.color = Palette.red
+            } else {
+                var dash = json.decode<DashboardFront>(brutoDash)
+                var brutoPaineis = await(spawn(() -> http.get(base + "/api/dashboard/" + nomes.get(0) + "/panels")))
+                if (brutoPaineis == null || brutoPaineis == "") {
+                    paineis = listOf<PainelFront>()
+                } else {
+                    paineis = json.decode<List<PainelFront>>(brutoPaineis)
+                }
+                dados = listOf<List<Double> >()
+                status.text = "dashboard " + dash.title() + " (pulso inicial)"
+                status.color = Palette.green
 
-        if (nomes.size > 0 && historico.size > 0) {
-            seletor.setSelected(0)
-            rotuloSerie.text = nomes.get(0) + ": " + resumo(historico.get(0))
-            var tracado = traco(historico.get(0))
-            canvas.clearRect(0.0, 0.0, 508.0, 240.0)
-            canvas.setStroke(Palette.gray)
-            canvas.setLineWidth(1)
-            var g = 0
-            while (g < 4) {
-                var y = 24.0 + g * 64.0
-                canvas.beginPath()
-                canvas.moveTo(24.0, y)
-                canvas.lineTo(484.0, y)
-                canvas.stroke()
-                g = g + 1
-            }
-            if (tracado.size > 1) {
-                canvas.setFill(Color.rgba(0, 200, 255, 40))
-                canvas.beginPath()
-                canvas.moveTo(tracado.get(0).get(0), 216.0)
-                var k = 0
-                while (k < tracado.size) {
-                    canvas.lineTo(tracado.get(k).get(0), tracado.get(k).get(1))
-                    k = k + 1
+                var v = 0
+                while (v < colunas.size) {
+                    colunas.get(v).remove()
+                    v = v + 1
                 }
-                canvas.lineTo(tracado.get(tracado.size - 1).get(0), 216.0)
-                canvas.closePath()
-                canvas.fill()
-                canvas.setStroke(Palette.cyan)
-                canvas.setLineWidth(2)
-                canvas.beginPath()
-                canvas.moveTo(tracado.get(0).get(0), tracado.get(0).get(1))
-                var k2 = 1
-                while (k2 < tracado.size) {
-                    canvas.lineTo(tracado.get(k2).get(0), tracado.get(k2).get(1))
-                    k2 = k2 + 1
+                var widgets = listOf<Component>()
+                var novosCanvases = listOf<Canvas>()
+                var i = 0
+                while (i < paineis.size) {
+                    var p = paineis.get(i)
+                    var rotulo = Label(p.title())
+                    rotulo.fontSize = 13
+                    rotulo.bold = true
+                    var tipo = Label("(" + p.type() + " · " + p.metric() + ")")
+                    tipo.color = Palette.gray
+                    tipo.fontSize = 11
+                    var c = Canvas(508, 200)
+                    c.setStroke(Palette.gray)
+                    c.setLineWidth(1)
+                    novosCanvases.add(c)
+                    var celula = Column(listOf(rotulo, tipo, c))
+                    widgets.add(celula)
+                    i = i + 1
                 }
-                canvas.stroke()
+                if (widgets.size == 0) {
+                    widgets = listOf(Label("nenhum painel no manifesto"))
+                }
+                canvases = novosCanvases
+                var nova = Column(widgets)
+                zonaPaineis.bind(nova)
+                colunas = listOf(nova)
             }
         }
     } catch (String e) {
@@ -191,116 +263,131 @@ main() {
         status.color = Palette.red
     }
 
+    spawn {
+        var novoDados = listOf<List<Double> >()
+        var i = 0
+        while (i < paineis.size) {
+            var p = paineis.get(i)
+            if (p.type() == "gauge") {
+                var brutoAgg = await(http.get(base + "/api/aggregate/" + p.metric() + "?fn=avg&windowMs=" + p.windowMs().toString()))
+                var um = listOf<Double>()
+                um.add(valorDeGaugeTexto(brutoAgg))
+                novoDados.add(um)
+            } else {
+                var agora = time.now()
+                var inicio = agora - p.fromMs()
+                var brutoSerie = await(http.get(base + "/api/query/" + p.metric() + "?from=" + inicio.toString() + "&to=" + agora.toString()))
+                novoDados.add(valoresDeTexto(brutoSerie))
+            }
+            i = i + 1
+        }
+        dados = novoDados
+
+        var i2 = 0
+        while (i2 < canvases.size && i2 < dados.size) {
+            var c = canvases.get(i2)
+            var p = paineis.get(i2)
+            c.clearRect(0.0, 0.0, 508.0, 200.0)
+            desenhaPainel(c, p, dados.get(i2))
+            i2 = i2 + 1
+        }
+
+        status.text = status.text + " | atualizado"
+        status.color = Palette.green
+    }
+
     time.interval(3000, (e: Event) -> {
-        pulso = pulso + 1
         spawn {
-            var bruto = await(http.get(base + "/api/metrics"))
-            var series = json.decode<List<SerieOut>>(bruto)
-            var novosNomes = nomesDe(series)
-            var novoHistorico = listOf<List<Double> >()
+            var novoDados = listOf<List<Double> >()
             var i = 0
-            while (i < series.size) {
-                var nome = series.get(i).name
-                var brutoSerie = await(http.get(base + "/api/query/" + nome))
-                var amostras = json.decode<List<AmostraIn>>(brutoSerie)
-                novoHistorico.add(valoresDe(amostras))
+            while (i < paineis.size) {
+                var p = paineis.get(i)
+                if (p.type() == "gauge") {
+                    var brutoAgg = await(http.get(base + "/api/aggregate/" + p.metric() + "?fn=avg&windowMs=" + p.windowMs().toString()))
+                    var um = listOf<Double>()
+                    um.add(valorDeGaugeTexto(brutoAgg))
+                    novoDados.add(um)
+                } else {
+                    var agora = time.now()
+                    var inicio = agora - p.fromMs()
+                    var brutoSerie = await(http.get(base + "/api/query/" + p.metric() + "?from=" + inicio.toString() + "&to=" + agora.toString()))
+                    novoDados.add(valoresDeTexto(brutoSerie))
+                }
                 i = i + 1
             }
-            nomes = novosNomes
-            historico = novoHistorico
-            tabela.setRows(linhasDe(series))
-            seletor.setOptions(novosNomes)
-            status.text = nomes.size.toString() + " series ativas em " + base + " (pulso " + pulso.toString() + ")"
-            status.color = Palette.green
-            if (nomes.size > 0 && historico.size > 0) {
-                var indice = seletor.selected()
-                if (indice < 0 || indice >= historico.size) {
-                    indice = 0
-                }
-                seletor.setSelected(indice)
-                rotuloSerie.text = nomes.get(indice) + ": " + resumo(historico.get(indice))
-                var tracado = traco(historico.get(indice))
-                canvas.clearRect(0.0, 0.0, 508.0, 240.0)
-                canvas.setStroke(Palette.gray)
-                canvas.setLineWidth(1)
-                var g = 0
-                while (g < 4) {
-                    var y = 24.0 + g * 64.0
-                    canvas.beginPath()
-                    canvas.moveTo(24.0, y)
-                    canvas.lineTo(484.0, y)
-                    canvas.stroke()
-                    g = g + 1
-                }
-                if (tracado.size > 1) {
-                    canvas.setFill(Color.rgba(0, 200, 255, 40))
-                    canvas.beginPath()
-                    canvas.moveTo(tracado.get(0).get(0), 216.0)
-                    var k = 0
-                    while (k < tracado.size) {
-                        canvas.lineTo(tracado.get(k).get(0), tracado.get(k).get(1))
-                        k = k + 1
-                    }
-                    canvas.lineTo(tracado.get(tracado.size - 1).get(0), 216.0)
-                    canvas.closePath()
-                    canvas.fill()
-                    canvas.setStroke(Palette.cyan)
-                    canvas.setLineWidth(2)
-                    canvas.beginPath()
-                    canvas.moveTo(tracado.get(0).get(0), tracado.get(0).get(1))
-                    var k2 = 1
-                    while (k2 < tracado.size) {
-                        canvas.lineTo(tracado.get(k2).get(0), tracado.get(k2).get(1))
-                        k2 = k2 + 1
-                    }
-                    canvas.stroke()
-                }
+            dados = novoDados
+
+            var i2 = 0
+            while (i2 < canvases.size && i2 < dados.size) {
+                var c = canvases.get(i2)
+                var p = paineis.get(i2)
+                c.clearRect(0.0, 0.0, 508.0, 200.0)
+                desenhaPainel(c, p, dados.get(i2))
+                i2 = i2 + 1
             }
+
+            status.text = "dashboard ativo | pulso " + (pulso + 1).toString()
+            status.color = Palette.green
+            pulso = pulso + 1
         }
     })
 
-    seletor.on("change", (e: Event) -> {
-        var indice = seletor.selected()
-        if (indice < 0 || indice >= historico.size) {
-            return
-        }
-        var pontos = historico.get(indice)
-        rotuloSerie.text = nomes.get(indice) + ": " + resumo(pontos)
-        var tracado = traco(pontos)
-        canvas.clearRect(0.0, 0.0, 508.0, 240.0)
-        canvas.setStroke(Palette.gray)
-        canvas.setLineWidth(1)
-        var g = 0
-        while (g < 4) {
-            var y = 24.0 + g * 64.0
-            canvas.beginPath()
-            canvas.moveTo(24.0, y)
-            canvas.lineTo(484.0, y)
-            canvas.stroke()
-            g = g + 1
-        }
-        if (tracado.size > 1) {
-            canvas.setFill(Color.rgba(0, 200, 255, 40))
-            canvas.beginPath()
-            canvas.moveTo(tracado.get(0).get(0), 216.0)
-            var k = 0
-            while (k < tracado.size) {
-                canvas.lineTo(tracado.get(k).get(0), tracado.get(k).get(1))
-                k = k + 1
+    seletorDash.on("change", (e: Event) -> {
+        spawn {
+            var indice = seletorDash.selected()
+            if (indice >= 0 && indice < nomesDash.size) {
+                var nome = nomesDash.get(indice)
+                status.text = "carregando dashboard " + nome + " ..."
+                status.color = Palette.gray
+                var brutoDash = await(http.get(base + "/api/dashboard/" + nome))
+                if (brutoDash == null || brutoDash == "") {
+                    status.text = "dashboard nao encontrado: " + nome
+                    status.color = Palette.red
+                } else {
+                    var dash = json.decode<DashboardFront>(brutoDash)
+                    var brutoPaineis = await(http.get(base + "/api/dashboard/" + nome + "/panels"))
+                    if (brutoPaineis == null || brutoPaineis == "") {
+                        paineis = listOf<PainelFront>()
+                    } else {
+                        paineis = json.decode<List<PainelFront>>(brutoPaineis)
+                    }
+                    dados = listOf<List<Double> >()
+                    status.text = "dashboard " + dash.title()
+                    status.color = Palette.green
+
+                    var v = 0
+                    while (v < colunas.size) {
+                        colunas.get(v).remove()
+                        v = v + 1
+                    }
+                    var widgets = listOf<Component>()
+                    var novosCanvases = listOf<Canvas>()
+                    var i = 0
+                    while (i < paineis.size) {
+                        var p = paineis.get(i)
+                        var rotulo = Label(p.title())
+                        rotulo.fontSize = 13
+                        rotulo.bold = true
+                        var tipo = Label("(" + p.type() + " · " + p.metric() + ")")
+                        tipo.color = Palette.gray
+                        tipo.fontSize = 11
+                        var c = Canvas(508, 200)
+                        c.setStroke(Palette.gray)
+                        c.setLineWidth(1)
+                        novosCanvases.add(c)
+                        var celula = Column(listOf(rotulo, tipo, c))
+                        widgets.add(celula)
+                        i = i + 1
+                    }
+                    if (widgets.size == 0) {
+                        widgets = listOf(Label("nenhum painel no manifesto"))
+                    }
+                    canvases = novosCanvases
+                    var nova = Column(widgets)
+                    zonaPaineis.bind(nova)
+                    colunas = listOf(nova)
+                }
             }
-            canvas.lineTo(tracado.get(tracado.size - 1).get(0), 216.0)
-            canvas.closePath()
-            canvas.fill()
-            canvas.setStroke(Palette.cyan)
-            canvas.setLineWidth(2)
-            canvas.beginPath()
-            canvas.moveTo(tracado.get(0).get(0), tracado.get(0).get(1))
-            var k2 = 1
-            while (k2 < tracado.size) {
-                canvas.lineTo(tracado.get(k2).get(0), tracado.get(k2).get(1))
-                k2 = k2 + 1
-            }
-            canvas.stroke()
         }
     })
 
@@ -308,87 +395,21 @@ main() {
         status.text = "atualizando ..."
         status.color = Palette.gray
         spawn {
-            var bruto = await(http.get(base + "/api/metrics"))
-            var series = json.decode<List<SerieOut>>(bruto)
-            var novosNomes = nomesDe(series)
-            var novoHistorico = listOf<List<Double> >()
-            var i = 0
-            while (i < series.size) {
-                var nome = series.get(i).name
-                var brutoSerie = await(http.get(base + "/api/query/" + nome))
-                var amostras = json.decode<List<AmostraIn>>(brutoSerie)
-                novoHistorico.add(valoresDe(amostras))
-                i = i + 1
+            var bruto = await(http.get(base + "/api/dashboards"))
+            var resumos = json.decode<List<DashboardResumoFront>>(bruto)
+            var nomes = listOf<String>()
+            for (var r in resumos) {
+                nomes.add(r.name())
             }
-            nomes = novosNomes
-            historico = novoHistorico
-            tabela.setRows(linhasDe(series))
-            seletor.setOptions(novosNomes)
-            status.text = nomes.size.toString() + " series ativas em " + base
+            nomesDash = nomes
+            seletorDash.setOptions(nomes)
+            if (nomes.size > 0) {
+                seletorDash.setSelected(0)
+            }
+            status.text = nomes.size.toString() + " dashboards em " + base
             status.color = Palette.green
         }
     })
-
-    spawn {
-        var bruto = await(http.get(base + "/api/metrics"))
-        var series = json.decode<List<SerieOut>>(bruto)
-        nomes = nomesDe(series)
-        tabela.setRows(linhasDe(series))
-        seletor.setOptions(nomes)
-
-        var i = 0
-        while (i < series.size) {
-            var nome = series.get(i).name
-            var brutoSerie = await(http.get(base + "/api/query/" + nome))
-            var amostras = json.decode<List<AmostraIn>>(brutoSerie)
-            historico.add(valoresDe(amostras))
-            i = i + 1
-        }
-
-        status.text = nomes.size.toString() + " series ativas em " + base
-        status.color = Palette.green
-
-        if (nomes.size > 0 && historico.size > 0) {
-            seletor.setSelected(0)
-            rotuloSerie.text = nomes.get(0) + ": " + resumo(historico.get(0))
-            var tracado = traco(historico.get(0))
-            canvas.clearRect(0.0, 0.0, 508.0, 240.0)
-            canvas.setStroke(Palette.gray)
-            canvas.setLineWidth(1)
-            var g = 0
-            while (g < 4) {
-                var y = 24.0 + g * 64.0
-                canvas.beginPath()
-                canvas.moveTo(24.0, y)
-                canvas.lineTo(484.0, y)
-                canvas.stroke()
-                g = g + 1
-            }
-            if (tracado.size > 1) {
-                canvas.setFill(Color.rgba(0, 200, 255, 40))
-                canvas.beginPath()
-                canvas.moveTo(tracado.get(0).get(0), 216.0)
-                var k = 0
-                while (k < tracado.size) {
-                    canvas.lineTo(tracado.get(k).get(0), tracado.get(k).get(1))
-                    k = k + 1
-                }
-                canvas.lineTo(tracado.get(tracado.size - 1).get(0), 216.0)
-                canvas.closePath()
-                canvas.fill()
-                canvas.setStroke(Palette.cyan)
-                canvas.setLineWidth(2)
-                canvas.beginPath()
-                canvas.moveTo(tracado.get(0).get(0), tracado.get(0).get(1))
-                var k2 = 1
-                while (k2 < tracado.size) {
-                    canvas.lineTo(tracado.get(k2).get(0), tracado.get(k2).get(1))
-                    k2 = k2 + 1
-                }
-                canvas.stroke()
-            }
-        }
-    }
 
     janela.show()
 }

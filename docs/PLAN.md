@@ -319,3 +319,25 @@ reload da página. Canvas verificado por contagem de pixels (57.978 pintados).
   unboxa mesmo assim (NPE) quando o nullable é apagado para primitivo;
   regra local: checar null em `if` separado (ver gap do record acima).
   Classificação: Kof compiler.
+- **`json.decode` em record quebra com campo `Long` ausente no JSON (gap
+  novo, 13/09)** — decodificar um objeto cujo painel omite uma chave
+  (`fromMs` XOR `windowMs`) estoura no runtime:
+  `IllegalArgumentException: NullPointerException: Cannot invoke
+  "java.lang.Number.longValue()" because the return value of
+  "sun.invoke.util.ValueConversions.primitiveConversion(...)" is null`, em
+  `KofRuntime.kof_json_bind` (KofRuntime.java:295) — a chave ausente vira
+  `null` e o caminho de bind aplica conversão primitiva sobre `null`.
+  Repro mínima (modo `kof run`, arquivo lido com `File.readText`):
+  `record P(String t, Long a, Long b)` + JSON `{"t":"x","a":1}` → NPE;
+  com `"a":1,"b":2` explícitos decodifica perfeito (inclui Unicode). O
+  mesmo conteúdo como literal embutido em `kof script` NÃO reproduz —
+  comportamento difere entre modos (ver gap do record acima). Nota: em
+  `kof script` (.ks) o tipo `File`/`kof.io` nem resolve (SEM011
+  "Undefined variable or type: 'File'"), e `import` é rejeitado
+  (PARSE041) — todo teste de leitura de arquivo via `.ks` na verdade
+  alimentou `decode(null)`; a investigação só avançou no modo `kof run`.
+  Workaround no KofWatch: manifesto declara SEMPRE `fromMs` e `windowMs`,
+  usando `0` para "não se aplica"; `normalizarPainel` já mapeia
+  `null || <= 0` para os padrões (3600000/60000) e a validação passou a
+  rejeitar só negativos. Classificação: Kof runtime (decoder), mesma
+  família do apagamento de nullable em record.

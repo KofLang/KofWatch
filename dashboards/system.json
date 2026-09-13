@@ -1,0 +1,28 @@
+{
+  "name": "system",
+  "title": "Sistema",
+  "refreshMs": 3000,
+  "panels": [
+    {
+      "title": "CPU ocupada",
+      "type": "timeseries",
+      "metric": "cpu.busy",
+      "fromMs": 3600000,
+      "windowMs": 0
+    },
+    {
+      "title": "GPU temperatura",
+      "type": "gauge",
+      "metric": "gpu.temp",
+      "fromMs": 0,
+      "windowMs": 60000
+    },
+    {
+      "title": "Memória",
+      "type": "timeseries",
+      "metric": "mem",
+      "fromMs": 3600000,
+      "windowMs": 0
+    }
+  ]
+}

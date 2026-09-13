@@ -7,7 +7,30 @@
 
 ## O que está pronto e provado
 
-- **Fase 2 — Observabilidade declarativa: pipeline de manifestos COMPLETO
+- **Fase 2 — frontend consome o dashboard declarativo: COMPLETO e
+  validado end-to-end (13/09)** — o dashboard kof-ui (`web/Index.kf`)
+  trocou a tabela de séries cruas pelos painéis reais do manifesto:
+  `GET /api/dashboards` alimenta o seletor; `GET /api/dashboard/:name`
+  + `/api/dashboard/:name/panels` viram `PainelFront` no front; cada
+  pulso reconsulta por painel — gauge → `GET /api/aggregate/:name?
+  fn=avg&windowMs=...`, timeseries → `GET /api/query/:name?
+  from=agora-fromMs&to=agora` — e renderiza `timeseries` (Canvas:
+  grid + área + linha) e `gauge` (arco cinza + arco ciano proporcional
+  + valor), com fallback "Painel nao suportado" para outros tipos.
+  Provas no browser: 3 canvases fixos (sem duplicação) em 180+ pulsos;
+  POST de `gpu.temp=0.72` refletiu sozinho no arco do gauge no pulso
+  seguinte (20 → 2248 pixels cianos, texto central 5 → 105 px) sem
+  reload; manifesto editado no disco apareceu na API sem tocar no
+  front (desacoplamento provado) e foi restaurado.
+- **Bug do `View.bind` acumulativo corrigido via patch de runtime** —
+  `kofUiViewBind` do runtime só fazia `appendChild` (painéis
+  duplicavam a cada pulso). O `scripts/build-dashboard.sh` agora
+  aplica DOIS patches pós-build, idempotentes: (1) fetch real no bloco
+  fallback, (2) semântica de substituição no bind (limpa filhos antes
+  de append). Com (2), os laços manuais de remoção no `Index.kf`
+  foram removidos (eram frágeis: emissor embaralha incremento/acesso
+  em `while` — ver Lições).
+- **Fase 2 — pipeline de manifestos COMPLETO
   e validado end-to-end (13/09)** — dashboards declarados em JSON no Git
   (`dashboards/system.json`), carregados por `Manifest.kf`
   (`carregarManifestos` → validação → normalização → runtime model) e
@@ -54,7 +77,18 @@
 | Modo | I/O do runtime | Status |
 |---|---|---|
 | Browser (http.server + build js) | fetch (precisa patch no `kof-runtime.mjs`) | ao vivo, PROVADO |
-| Webview nativo (`kof run --target=js`) | interop Java HttpClient | mecanismo igual; pulso end-to-end não revalidado nesta sessão |
+| Webview nativo (`kof run --target=js`) | GraalJS → Java HttpClient (síncrono) | ao vivo, PROVADO (13/09) |
+
+Prova do webview nativo (13/09): `kof run --target=js web/Index.kf` via
+`flatpak-spawn --host` na sessão Wayland do host abre a janela
+`kof-webview` (WebKitWebProcess ativo). Testemunha server-side: o
+backend saltou de ~19-20 consultas/min de `cpu.busy` (só o browser) para
+**39-40 consultas/min** com o webview em pé — dois clientes puxando por
+painel no tick de 3s. O I/O nativo resolve via Java HttpClient do
+GraalJS interop (síncrono, em `kofHttpRequest` do runtime), sem
+precisar do patch do fetch. Obervação: `DISPLAY=:0` do host é headless
+(só daemons X); a janela renderiza pelo Wayland — screenshot não é
+possível por X11, e a prova é server-side.
 
 No browser, o build fresco da 0.3.22-beta emite stub `""` no bloco
 "Fallback to fetch" do `kof-runtime.mjs`. O patch agora é aplicado
@@ -74,8 +108,9 @@ seguinte) e botão atualizar, tudo sem erros no console.
 
 ## Pendências conhecidas (não bloqueiam o MVP)
 
-1. Revalidar um pulso do webview nativo end-to-end (mesmo mecanismo do
-   browser, caminho de I/O diferente).
+1. ~~Revalidar um pulso do webview nativo end-to-end~~ RESOLVIDA (13/09):
+   provado server-side (39-40 consultas/min no backend com webview em
+   pé vs ~20 só com browser); ver tabela acima.
 2. ~~`kof build` do dashboard com patch embutido no fluxo~~ RESOLVIDA:
    `scripts/build-dashboard.sh` (12/09) gera o build e aplica o patch
    do fetch automaticamente; validado no browser end-to-end.
@@ -90,10 +125,10 @@ seguinte) e botão atualizar, tudo sem erros no console.
 7. Suíte de testes multi-arquivo: `kof test <dir>` compila cada arquivo
    isolado e falha em dependências (ver PLAN §4); cobrir rotas com
    bateria curl em script.
-8. Front ainda não consome `/api/dashboard/:name` — o dashboard kof-ui
-   continua listando séries cruas (`/api/metrics` + `/api/query`);
-   próximo passo da Fase 2 é renderizar os painéis do manifesto
-   (timeseries + gauge) a partir do manifesto.
+8. ~~Front ainda não consome `/api/dashboard/:name`~~ RESOLVIDA (13/09):
+   o dashboard kof-ui agora renderiza os painéis do manifesto
+   (timeseries + gauge) com live update por `time.interval`; tipos
+   desconhecidos caem no fallback "Painel nao suportado".
 
 ## Lições de execução Kof (13/09)
 

@@ -50,13 +50,22 @@ python3 -m http.server 8099 --directory /tmp/kofbuild
 # abrir http://127.0.0.1:8099/
 ```
 
-O script gera o build com `kof build web` e aplica automaticamente o
-patch do fetch no `kof-runtime.mjs` (ver detalhes em PLAN.md §4).
+O script gera o build com `kof build web` e aplica automaticamente DOIS
+patches idempotentes no `kof-runtime.mjs` (ver detalhes em PLAN.md §4):
 
-No browser, o dashboard é ao vivo: um `time.interval(3000)` e o botão
-"atualizar" disparam blocos `spawn { ... }` que rebuscam `/api/metrics` e
-`/api/query/:name`, atualizam a tabela/select e redesenham o canvas.
-O backend precisa estar de pé na 8080 (CORS já aberto nos GETs).
+1. **fetch real** no bloco fallback (o emissor 0.3.22-beta gera stub `""`);
+2. **View.bind com semântica de substituição** — o `kofUiViewBind` do
+   runtime só fazia `appendChild` e acumulava filhos (painéis duplicando
+   a cada pulso); o patch limpa os filhos antes de append. Com isso o
+   front não precisa de laços manuais de remoção (que o emissor embaralha
+   em `while`).
+
+No browser, o dashboard renderiza os painéis do manifesto
+(`dashboards/*.json`): `time.interval(3000)` e o botão "atualizar"
+disparam blocos `spawn { ... }` que reconsultam por painel — gauge via
+`/api/aggregate/:name`, timeseries via `/api/query/:name` — e rebindam a
+coluna de painéis via `View.bind` (substituição). O backend precisa estar
+de pé na 8080 (CORS já aberto nos GETs).
 
 Alternativa webview nativo (GraalJS embarcado + WebKitGTK):
 

@@ -248,6 +248,35 @@ Prova de atualização automática: ingerido `temp.cpu` via curl; no tick
 seguinte (pulso 20) a série apareceu sozinha na tabela e no select, sem
 reload da página. Canvas verificado por contagem de pixels (57.978 pintados).
 
+### Painéis declarativos no front (Fase 2, concluída 13/09)
+
+O front trocou a tabela de séries cruas pelos painéis do manifesto
+(`web/Index.kf`): `/api/dashboards` → seletor; `/api/dashboard/:name` +
+`/api/dashboard/:name/panels` → `PainelFront`; cada pulso consulta por
+painel (gauge → `/api/aggregate`, timeseries → `/api/query` com
+`from=agora-fromMs`) e rebinda a coluna. Tipos suportados: `timeseries`
+(grid + área + linha no Canvas) e `gauge` (arco cinza + arco ciano
+proporcional + valor); outros caem no fallback "Painel nao suportado".
+
+Dois fatos novos de runtime, ambos resolvidos como patch idempotente no
+`scripts/build-dashboard.sh` (aplicado pós-build):
+
+1. **`kofUiViewBind` acumula filhos** (só `appendChild`): sem correção,
+   os painéis duplicavam a cada pulso. O patch injeta semântica de
+   substituição (limpa filhos antes de append); os laços manuais de
+   remoção no front foram removidos — o emissor embaralha incremento e
+   acesso em `while` de remoção (`Index out of bounds`) e solta
+   `kofListGet(...).remove()` cru no código gerado (`.remove is not a
+   function`).
+2. **Stub do fetch no fallback** (já registrado acima) — mesmo script
+   aplica os dois patches.
+
+Provas (browser, 13/09): 3 canvases fixos após 180+ pulsos (sem
+duplicação); POST de `gpu.temp=0.72` refletiu sozinho no arco do gauge no
+pulso seguinte (pixels cianos 20 → 2248) sem reload; manifesto editado no
+disco mudou o título do painel na API sem tocar no front (desacoplamento
+provado; manifesto restaurado em seguida).
+
 ## 4. Gaps do Kof a registrar (não contornar em silêncio)
 
 - `json.encode(Map)` quebrado no JVM (JDK modules) — afeta serialização de

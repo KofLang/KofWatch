@@ -54,8 +54,9 @@ List<List<Double> > traco(List<Double> pontos) {
     }
     var passo = (largura - margem * 2.0) / (pontos.size - 1)
     var i = 0
+    var par = listOf<Double>()
     while (i < pontos.size) {
-        var par = listOf<Double>()
+        par = listOf<Double>()
         par.add(margem + i * passo)
         par.add(altura - margem - ((pontos.get(i) - minimo) / faixa) * (altura - margem * 2.0))
         coordenadas.add(par)
@@ -81,8 +82,25 @@ String resumoDe(List<Double> pontos) {
     return minimo.toString() + " a " + maximo.toString()
 }
 
-void desenhaPainel(Canvas c, PainelFront p, List<Double> pontos) {
-    c.clear()
+String formatoDe(List<Double> pontos) {
+    if (pontos.size == 0) {
+        return "sem amostras"
+    }
+    if (pontos.size == 1) {
+        return "1 amostra"
+    }
+    return pontos.size.toString() + " amostras"
+}
+
+Column celulaPainel(PainelFront p, List<Double> pontos) {
+    var rotulo = Label(p.title())    rotulo.fontSize = 13
+    rotulo.bold = true
+    var tipo = Label("(" + p.type() + " · " + p.metric() + ")")
+    tipo.color = Palette.gray
+    tipo.fontSize = 11
+    var c = Canvas(508, 200)
+    c.setStroke(Palette.gray)
+    c.setLineWidth(1)
     if (p.type() == "gauge") {
         var valor = 0.0
         if (pontos.size > 0) {
@@ -108,10 +126,8 @@ void desenhaPainel(Canvas c, PainelFront p, List<Double> pontos) {
         }
         c.setFill(Palette.cyan)
         c.fillText(valor.toString(), 234.0, 138.0)
-    } else {
+    } else if (p.type() == "timeseries") {
         var tracado = traco(pontos)
-        c.setStroke(Palette.gray)
-        c.setLineWidth(1)
         var g = 0
         while (g < 4) {
             var y = 24.0 + g * 50.0
@@ -146,7 +162,33 @@ void desenhaPainel(Canvas c, PainelFront p, List<Double> pontos) {
         }
         c.setFill(Palette.gray)
         c.fillText(resumoDe(pontos), 24.0, 16.0)
+    } else {
+        c.setFill(Palette.gray)
+        c.fillText("Painel nao suportado: " + p.type(), 24.0, 16.0)
     }
+    if (pontos.size == 0) {
+        tipo.text = "(sem dados · " + formatoDe(pontos) + ")"
+    }
+    var celula = Column(listOf(rotulo, tipo, c))
+    return celula
+}
+
+Column colunaPaineis(List<PainelFront> paineis, List<List<Double> > dados) {
+    var widgets = listOf<Component>()
+    var i = 0
+    var pontos = listOf<Double>()
+    while (i < paineis.size) {
+        pontos = listOf<Double>()
+        if (i < dados.size) {
+            pontos = dados.get(i)
+        }
+        widgets.add(celulaPainel(paineis.get(i), pontos))
+        i = i + 1
+    }
+    if (widgets.size == 0) {
+        widgets = listOf(Label("nenhum painel no manifesto"))
+    }
+    return Column(widgets)
 }
 
 main() {
@@ -154,7 +196,6 @@ main() {
     var nomesDash = listOf<String>()
     var paineis = listOf<PainelFront>()
     var dados = listOf<List<Double> >()
-    var canvases = listOf<Canvas>()
     var pulso = 0
 
     var janela = Window("KofWatch")
@@ -225,35 +266,7 @@ main() {
                 status.text = "dashboard " + dash.title() + " (pulso inicial)"
                 status.color = Palette.green
 
-                var v = 0
-                while (v < colunas.size) {
-                    colunas.get(v).remove()
-                    v = v + 1
-                }
-                var widgets = listOf<Component>()
-                var novosCanvases = listOf<Canvas>()
-                var i = 0
-                while (i < paineis.size) {
-                    var p = paineis.get(i)
-                    var rotulo = Label(p.title())
-                    rotulo.fontSize = 13
-                    rotulo.bold = true
-                    var tipo = Label("(" + p.type() + " · " + p.metric() + ")")
-                    tipo.color = Palette.gray
-                    tipo.fontSize = 11
-                    var c = Canvas(508, 200)
-                    c.setStroke(Palette.gray)
-                    c.setLineWidth(1)
-                    novosCanvases.add(c)
-                    var celula = Column(listOf(rotulo, tipo, c))
-                    widgets.add(celula)
-                    i = i + 1
-                }
-                if (widgets.size == 0) {
-                    widgets = listOf(Label("nenhum painel no manifesto"))
-                }
-                canvases = novosCanvases
-                var nova = Column(widgets)
+                var nova = colunaPaineis(paineis, dados)
                 zonaPaineis.bind(nova)
                 colunas = listOf(nova)
             }
@@ -283,14 +296,9 @@ main() {
         }
         dados = novoDados
 
-        var i2 = 0
-        while (i2 < canvases.size && i2 < dados.size) {
-            var c = canvases.get(i2)
-            var p = paineis.get(i2)
-            c.clearRect(0.0, 0.0, 508.0, 200.0)
-            desenhaPainel(c, p, dados.get(i2))
-            i2 = i2 + 1
-        }
+        var nova = colunaPaineis(paineis, dados)
+        zonaPaineis.bind(nova)
+        colunas = listOf(nova)
 
         status.text = status.text + " | atualizado"
         status.color = Palette.green
@@ -317,14 +325,9 @@ main() {
             }
             dados = novoDados
 
-            var i2 = 0
-            while (i2 < canvases.size && i2 < dados.size) {
-                var c = canvases.get(i2)
-                var p = paineis.get(i2)
-                c.clearRect(0.0, 0.0, 508.0, 200.0)
-                desenhaPainel(c, p, dados.get(i2))
-                i2 = i2 + 1
-            }
+            var novaPulso = colunaPaineis(paineis, dados)
+            zonaPaineis.bind(novaPulso)
+            colunas = listOf(novaPulso)
 
             status.text = "dashboard ativo | pulso " + (pulso + 1).toString()
             status.color = Palette.green
@@ -355,37 +358,9 @@ main() {
                     status.text = "dashboard " + dash.title()
                     status.color = Palette.green
 
-                    var v = 0
-                    while (v < colunas.size) {
-                        colunas.get(v).remove()
-                        v = v + 1
-                    }
-                    var widgets = listOf<Component>()
-                    var novosCanvases = listOf<Canvas>()
-                    var i = 0
-                    while (i < paineis.size) {
-                        var p = paineis.get(i)
-                        var rotulo = Label(p.title())
-                        rotulo.fontSize = 13
-                        rotulo.bold = true
-                        var tipo = Label("(" + p.type() + " · " + p.metric() + ")")
-                        tipo.color = Palette.gray
-                        tipo.fontSize = 11
-                        var c = Canvas(508, 200)
-                        c.setStroke(Palette.gray)
-                        c.setLineWidth(1)
-                        novosCanvases.add(c)
-                        var celula = Column(listOf(rotulo, tipo, c))
-                        widgets.add(celula)
-                        i = i + 1
-                    }
-                    if (widgets.size == 0) {
-                        widgets = listOf(Label("nenhum painel no manifesto"))
-                    }
-                    canvases = novosCanvases
-                    var nova = Column(widgets)
-                    zonaPaineis.bind(nova)
-                    colunas = listOf(nova)
+                    var novaSel = colunaPaineis(paineis, dados)
+                    zonaPaineis.bind(novaSel)
+                    colunas = listOf(novaSel)
                 }
             }
         }

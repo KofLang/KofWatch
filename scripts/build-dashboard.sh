@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-# Build do dashboard para browser com o patch do fetch embutido.
-# O binário kof 0.3.22-beta emite stub `return ""` no bloco
-# "Fallback to fetch" do kof-runtime.mjs; este script aplica o patch
-# pós-build automaticamente (ver PLAN.md §4).
+# Build do dashboard para browser com patches de runtime embutidos.
+#
+# Patches necessarios no binario kof 0.3.22-beta (apos `kof build web`):
+#   1. fetch: o emissor gera stub `return ""` no bloco "Fallback to fetch"
+#      do kof-runtime.mjs; substituimos por fetch real (ver PLAN.md §4).
+#   2. view.bind: o runtime acumula filhos no appendChild; o dashboard
+#      espera semantica de substituicao (bind = setar conteudo).
 set -euo pipefail
 
 KOF="${KOF:-./.tools/kof-0.3.22-beta-linux-x86_64/bin/kof}"
@@ -18,34 +21,34 @@ if [ ! -f "$RUNTIME" ]; then
     exit 1
 fi
 
-if grep -q "await fetch(url" "$RUNTIME"; then
-    echo "fetch real já presente; patch desnecessário"
-    exit 0
-fi
-
-if ! grep -q "typeof fetch !== 'undefined'" "$RUNTIME"; then
-    echo "erro: bloco de fetch não encontrado em $RUNTIME" >&2
-    exit 1
-fi
-
 python3 - "$RUNTIME" <<'PYEOF'
 import sys
 
 caminho = sys.argv[1]
 with open(caminho, "r", encoding="utf-8") as arquivo:
-    conteudo = arquivo.read()
+    linhas = arquivo.readlines()
 
-marcador = """            if (typeof fetch !== 'undefined') {
-                // synchronous fallback not possible - use deasync via Atomics if available
-                // For MVP, do blocking via fetch sync is not supported; return empty
-                kofHttpCircuitRecordSuccess();
-                return "";
-            }"""
-indice = conteudo.find(marcador)
-if indice == -1:
-    sys.exit("bloco de fetch não encontrado")
+# ── patch 1: fetch real no fallback do browser ──
+if "const promessa = fetch(url" not in "".join(linhas):
+    inicio = -1
+    for i, linha in enumerate(linhas):
+        if "typeof fetch !== 'undefined'" in linha:
+            inicio = i
+            break
+    if inicio == -1:
+        sys.exit("bloco de fetch não encontrado")
 
-patch = """            if (typeof fetch !== 'undefined') {
+    fim = -1
+    # fecha o bloco do if(fetch): primeira linha `}` no nivel do proprio if
+    # (12 espacos), ignorando blocos internos mais indentados.
+    for j in range(inicio + 1, min(inicio + 40, len(linhas))):
+        if linhas[j].rstrip("\n") == "            }":
+            fim = j
+            break
+    if fim == -1:
+        sys.exit("fecho do bloco de fetch não encontrado")
+
+    patch = '''            if (typeof fetch !== 'undefined') {
                 let cabecalhos = undefined;
                 if (headers) {
                     cabecalhos = {};
@@ -64,12 +67,30 @@ patch = """            if (typeof fetch !== 'undefined') {
                         return texto;
                     });
                 return promessa;
-            }"""
-conteudo = conteudo[:indice] + patch + conteudo[indice + len(marcador):]
+            }
+'''
+    linhas[inicio:fim + 1] = [patch]
+    print("patch do fetch aplicado em", caminho)
+else:
+    print("patch do fetch ja presente")
+
+conteudo = "".join(linhas)
+
+# ── patch 2: View.bind com semantica de substituicao ──
+velho_bind = """        window.__kofNodes[view].appendChild(window.__kofNodes[child]);"""
+novo_bind = """        const pai = window.__kofNodes[view];
+        while (pai.firstChild) pai.removeChild(pai.firstChild);
+        pai.appendChild(window.__kofNodes[child]);"""
+if velho_bind in conteudo:
+    conteudo = conteudo.replace(velho_bind, novo_bind)
+    print("patch do view.bind (substituicao) aplicado")
+elif "while (pai.firstChild)" in conteudo:
+    print("patch do view.bind ja presente")
+else:
+    sys.exit("bloco do kofUiViewBind nao encontrado")
 
 with open(caminho, "w", encoding="utf-8") as arquivo:
     arquivo.write(conteudo)
-print("patch do fetch aplicado em", caminho)
 PYEOF
 
 echo "dashboard pronto em $SAIDA"

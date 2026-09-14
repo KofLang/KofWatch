@@ -176,18 +176,8 @@ main() {
         }
         var a = buscarAlertaPorNome(alertas, nome)
         if (a != null) {
-            var atual = estadoInicial(a.name)
-            var encontrado = estadosAlertas.get(a.name)
-            if (encontrado != null) {
-                atual = EstadoAlerta(encontrado.name, encontrado.estado, encontrado.valor, encontrado.ultimaAvaliacao, encontrado.desdeMs, encontrado.erro, encontrado.ackedMs)
-            }
-            if (atual.estado != "firing" && atual.estado != "pending") {
-                return status(409, json.encode(ErroOut("só alerta firing ou pending pode ser reconhecido: " + nome + " está " + atual.estado)))
-            }
-            var reconhecido = EstadoAlerta(atual.name, atual.estado, atual.valor, atual.ultimaAvaliacao, atual.desdeMs, atual.erro, time.now())
-            estadosAlertas.put(nome, reconhecido)
-            log.info("alerta reconhecido: " + nome + " (" + atual.estado + ")")
-            return json.encode(EstadoAlertaOut(a.name, a.title, a.metric, a.severidade, reconhecido.estado, reconhecido.valor, a.operador, a.limiar, reconhecido.ultimaAvaliacao, reconhecido.erro, reconhecido.ackedMs))
+            var atual = estadoDeAlerta(estadosAlertas, nome)
+            return json.encode(EstadoAlertaOut(a.name, a.title, a.metric, a.severidade, atual.estado, atual.valor, a.operador, a.limiar, atual.ultimaAvaliacao, atual.erro, atual.ackedMs))
         }
         return status(404, json.encode(ErroOut("alerta não encontrado: " + nome)))
     }
@@ -201,11 +191,7 @@ main() {
         }
         var a = buscarAlertaPorNome(alertas, nome)
         if (a != null) {
-            var atual = estadoInicial(a.name)
-            var encontrado = estadosAlertas.get(a.name)
-            if (encontrado != null) {
-                atual = EstadoAlerta(encontrado.name, encontrado.estado, encontrado.valor, encontrado.ultimaAvaliacao, encontrado.desdeMs, encontrado.erro, encontrado.ackedMs)
-            }
+            var atual = estadoDeAlerta(estadosAlertas, nome)
             if (atual.estado != "firing" && atual.estado != "pending") {
                 return status(409, json.encode(ErroOut("só alerta firing ou pending pode ser reconhecido: " + nome + " está " + atual.estado)))
             }
@@ -223,11 +209,7 @@ main() {
         var i = 0
         while (i < alertas.size) {
             var a = alertas.get(i)
-            var encontrado = estadosAlertas.get(a.name)
-            var atual = estadoInicial(a.name)
-            if (encontrado != null) {
-                atual = EstadoAlerta(encontrado.name, encontrado.estado, encontrado.valor, encontrado.ultimaAvaliacao, encontrado.desdeMs, encontrado.erro, encontrado.ackedMs)
-            }
+            var atual = estadoDeAlerta(estadosAlertas, a.name)
             var valor = 0.0
             var proximo: EstadoAlerta
             try {

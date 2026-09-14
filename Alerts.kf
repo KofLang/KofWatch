@@ -358,6 +358,26 @@ test "buscarAlertaPorNome encontra e distingue nomes" {
     assert(achado != buscarAlertaPorNome(alertas, "nao-existe"))
 }
 
+test "estadoDeAlerta devolve estado persistido sem mutar" {
+    var estados = mapOf<String, EstadoAlerta>()
+    estados.put("cpu-alta", EstadoAlerta("cpu-alta", "pending", 95.0, 100, 100, "", 123))
+    var e = estadoDeAlerta(estados, "cpu-alta")
+    assert(e.estado == "pending")
+    assert(e.ackedMs == 123)
+    var persistido = estados.get("cpu-alta")
+    if (persistido != null) {
+        assert(persistido.ackedMs == 123)
+    } else {
+        assert(false)
+    }
+}
+
+test "estadoDeAlerta devolve inicial para regra sem tick" {
+    var e = estadoDeAlerta(mapOf<String, EstadoAlerta>(), "cpu-alta")
+    assert(e.estado == "ok")
+    assert(e.ackedMs == 0)
+}
+
 record AlertaManifesto(String name, List<AlertaManifest> alerts)
 
 List<Alerta> carregarAlertas(String diretorio) {
@@ -432,6 +452,14 @@ List<EstadoAlertaOut> estadosParaSaida(List<Alerta> alertas, Map<String, EstadoA
         i = i + 1
     }
     return saida
+}
+
+EstadoAlerta estadoDeAlerta(Map<String, EstadoAlerta> estados, String nome) {
+    var encontrado = estados.get(nome)
+    if (encontrado != null) {
+        return EstadoAlerta(encontrado.name, encontrado.estado, encontrado.valor, encontrado.ultimaAvaliacao, encontrado.desdeMs, encontrado.erro, encontrado.ackedMs)
+    }
+    return estadoInicial(nome)
 }
 
 Alerta? buscarAlertaPorNome(List<Alerta> alertas, String nome) {

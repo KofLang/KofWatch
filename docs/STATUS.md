@@ -1,12 +1,26 @@
 # KofWatch — Estado Atual
 
-**Atualizado em:** 13/09/2026
+**Atualizado em:** 14/09/2026
 **Fonte da verdade:** este arquivo resume o estado; detalhes em
 [PLAN.md](PLAN.md) (decisões e gaps) e [DEVELOPMENT.md](DEVELOPMENT.md)
 (como rodar).
 
 ## O que está pronto e provado
 
+- **Correção — `GET /api/alerts/:name` era consulta pura de novo (14/09)** —
+  a rota tinha caído como cópia do handler de ack (mutava `ackedMs` e
+  exigia pending/firing com 409). Agora é consulta pura: responde 200
+  para qualquer estado (ok inclusive), 404 se a regra não existe, 400
+  se nome inválido, e não altera estado. Refatoração junto: helper
+  `estadoDeAlerta(estados, nome)` em `Alerts.kf` centraliza o lookup
+  com fallback para estado inicial (usado pela rota GET, pelo ack e
+  pelo scheduler). Provas: suíte 20/20 em `kof test Alerts.kf` (2
+  testes novos do helper); `kof check .` limpo (6 arquivos); curl —
+  GET duplo em pending não mutou (`ackedMs:0` nas duas respostas),
+  ack via POST persistiu, GET refletiu sem mutar, GET de alerta em
+  `ok` → 200; ciclo completo repetido (firing preservou ack,
+  recuperação zerou); browser — GET de pending 200, ack pela UI
+  persistiu e rótulo "reconhecido" apareceu no painel.
 - **Fase 4 — motor de alertas: COMPLETO e validado end-to-end (14/09)** —
   regras declarativas em JSON no diretório `alerts/` (config
   `alerts.dir`), mesmo formato de manifesto dos dashboards

@@ -466,12 +466,21 @@ computar o valor da regra — nenhum mecanismo de consulta paralelo.
 - **API**: `GET /api/alerts` (todos) e `GET /api/alerts/:name` (404 se
   não existe, 400 se nome inválido — mesma disciplina das rotas de
   dashboard).
-- **Provas (14/09, com tick de 5s via `kof.config`)**: suíte 16/16
-  `kof test Alerts.kf`; ingestão `cpu=90` → `cpu-alta` firing no tick
-  (log "alertas disparados: 1 de 3"); `cpu=30` → ok no tick seguinte;
-  `gpu.temp=91` com `duracaoMs=12000` → pending (~6s, valor 91.0) →
-  firing (~12s+1 tick) → ok após resfriar (40.0); 404 e 400 de nome
-  inválido na rota por nome.
+- **Reconhecimento (ack)**: quando o alerta está em `pending`,
+  `POST /api/alerts/:name/ack` grava `ackedMs` no `EstadoAlerta`
+  (persistente entre ticks, sobrevive a reload do browser). Transição
+  para `firing` preserva `ackedMs`; recuperação para `ok` zera o ack.
+- **Front**: cartão do alerta pendente mostra o botão
+  "reconhecer <nome>", que chama o ack e exibe status textual
+  ("<nome> reconhecido"); refresh no pulso seguinte esconde o botão.
+- **Provas (14/09, com tick de 5s via `kof.config`)**: suíte 18/18
+  `kof test Alerts.kf` (inclui ack persistido, ack zerado na
+  recuperação e firing com ack preservado); end-to-end duas rodadas
+  com `gpu.temp=95`: pending → clique no botão no browser (status
+  "gpu-quente reconhecido") → `ackedMs` setado e preservado no tick
+  seguinte → ok + `ackedMs=0` após a métrica expirar; reload do
+  browser refletiu o estado persistido; 404 e 400 de nome inválido na
+  rota por nome.
 
 Nota de execução: o teste do `duracaoMs` foi impossível (ou
 indistinguível de "não funciona") até renomear a config — com o tick

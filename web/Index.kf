@@ -10,7 +10,7 @@ record DashboardFront(String name, String title, Long refreshMs, List<PainelFron
 
 record DashboardResumoFront(String name, String title, Long panels, String erro)
 
-record AlertaEstadoFront(String name, String title, String severidade, String estado, Double valor, String operador, Double threshold, Long lastEvaluation, String erro)
+record AlertaEstadoFront(String name, String title, String severidade, String estado, Double valor, String operador, Double threshold, Long lastEvaluation, String erro, Long ackedMs)
 
 List<Double> valoresDeTexto(String bruto) {
     var valores = listOf<Double>()
@@ -244,6 +244,12 @@ Column celulaAlerta(AlertaEstadoFront a) {
     var sub = Label(texto)
     sub.color = Palette.gray
     sub.fontSize = 11
+    if (a.ackedMs() > 0 && (a.estado() == "firing" || a.estado() == "pending")) {
+        var ack = Label("reconhecido")
+        ack.color = Palette.cyan
+        ack.fontSize = 11
+        return Column(listOf(rotulo, detalhe, medida, sub, ack))
+    }
     return Column(listOf(rotulo, detalhe, medida, sub))
 }
 
@@ -258,6 +264,20 @@ Column colunaAlertas(List<AlertaEstadoFront> alertas) {
         widgets = listOf(Label("nenhum alerta declarado em alerts/"))
     }
     return Column(widgets)
+}
+
+String alvoDeAck(List<AlertaEstadoFront> estados) {
+    var alvo = ""
+    var i = 0
+    while (i < estados.size) {
+        var e = estados.get(i)
+        if (e.estado() == "firing" || e.estado() == "pending") {
+            alvo = e.name()
+            i = estados.size
+        }
+        i = i + 1
+    }
+    return alvo
 }
 
 main() {
@@ -304,10 +324,22 @@ main() {
 
     var zonaAlertas = View(Style(Theme.dark().background(), Theme.dark().text(), 8, 4))
 
+    var estadosAlerta = listOf<AlertaEstadoFront>()
+    var botaoAck = Button("nenhum alerta ativo")
+
+    var atualizarBotaoAck = () -> {
+        var alvo = alvoDeAck(estadosAlerta)
+        if (alvo == "") {
+            botaoAck.text = "nenhum alerta ativo"
+        } else {
+            botaoAck.text = "reconhecer " + alvo
+        }
+    }
+
     var colunas = listOf<Column>()
 
     var painelRaiz = View(Style(Theme.dark().background(), Theme.dark().text(), 16, 10))
-    painelRaiz.bind(Column(listOf(cabecalho, status, Hr(), rotuloDashboards, seletorDash, botaoAtualizar, Hr(), rotuloPaineis, zonaPaineis, Hr(), rotuloAlertas, zonaAlertas)))
+    painelRaiz.bind(Column(listOf(cabecalho, status, Hr(), rotuloDashboards, seletorDash, botaoAtualizar, Hr(), rotuloPaineis, zonaPaineis, Hr(), rotuloAlertas, botaoAck, zonaAlertas)))
     janela.bind(painelRaiz)
 
     try {
@@ -355,6 +387,8 @@ main() {
         try {
             var brutoAlertas = await(http.get(base + "/api/alerts"))
             var estados = json.decode<List<AlertaEstadoFront>>(brutoAlertas)
+            estadosAlerta = estados
+            atualizarBotaoAck.run()
             zonaAlertas.bind(colunaAlertas(estados))
         } catch (String e) {
             zonaAlertas.bind(Column(listOf(Label("alertas indisponiveis: " + e))))
@@ -429,6 +463,8 @@ main() {
             try {
                 var brutoAlertas = await(http.get(base + "/api/alerts"))
                 var estados = json.decode<List<AlertaEstadoFront>>(brutoAlertas)
+                estadosAlerta = estados
+                atualizarBotaoAck.run()
                 zonaAlertas.bind(colunaAlertas(estados))
             } catch (String e) {
                 zonaAlertas.bind(Column(listOf(Label("alertas indisponiveis: " + e))))
@@ -488,6 +524,28 @@ main() {
             }
             status.text = nomes.size.toString() + " dashboards em " + base
             status.color = Palette.green
+        }
+    })
+
+    botaoAck.on("click", (e: Event) -> {
+        var alvo = alvoDeAck(estadosAlerta)
+        if (alvo != "") {
+            status.text = "reconhecendo " + alvo + " ..."
+            status.color = Palette.gray
+            spawn {
+                try {
+                    await(http.post(base + "/api/alerts/" + alvo + "/ack", "{}"))
+                    var bruto = await(http.get(base + "/api/alerts"))
+                    estadosAlerta = json.decode<List<AlertaEstadoFront>>(bruto)
+                    zonaAlertas.bind(colunaAlertas(estadosAlerta))
+                    atualizarBotaoAck.run()
+                    status.text = alvo + " reconhecido"
+                    status.color = Palette.green
+                } catch (String e2) {
+                    status.text = "falha ao reconhecer: " + e2
+                    status.color = Palette.red
+                }
+            }
         }
     })
 

@@ -2,9 +2,9 @@ record AlertaManifest(String name, String title, String metric, String fnc, Stri
 
 record Alerta(String name, String title, String metric, String fnc, String operador, String severidade, Double limiar, Long janelaMs, Long duracaoMs, String descricao)
 
-record EstadoAlerta(String name, String estado, Double valor, Long ultimaAvaliacao, Long desdeMs, String erro)
+record EstadoAlerta(String name, String estado, Double valor, Long ultimaAvaliacao, Long desdeMs, String erro, Long ackedMs)
 
-record EstadoAlertaOut(String name, String title, String metric, String severidade, String estado, Double valor, String operador, Double threshold, Long lastEvaluation, String erro)
+record EstadoAlertaOut(String name, String title, String metric, String severidade, String estado, Double valor, String operador, Double threshold, Long lastEvaluation, String erro, Long ackedMs)
 
 Bool condicaoSatisfeita(Double valor, String operador, Double limiar) {
     if (operador == "gt") { return valor > limiar }
@@ -166,27 +166,29 @@ Bool duracaoMsInvalida(String duracao) {
 }
 
 EstadoAlerta estadoInicial(String nome) {
-    return EstadoAlerta(nome, "ok", 0.0, 0, 0, "")
+    return EstadoAlerta(nome, "ok", 0.0, 0, 0, "", 0)
 }
 
 EstadoAlerta avancarEstado(EstadoAlerta atual, Bool condicao, Double valor, Long agora, Long duracaoMs) {
     if (condicao == false) {
-        return EstadoAlerta(atual.name, "ok", valor, agora, agora, "")
+        return EstadoAlerta(atual.name, "ok", valor, agora, agora, "", 0)
     }
+    var ack = atual.ackedMs
+    if (atual.estado == "ok" || atual.estado == "error") { ack = 0 }
     if (duracaoMs <= 0) {
-        return EstadoAlerta(atual.name, "firing", valor, agora, agora, "")
+        return EstadoAlerta(atual.name, "firing", valor, agora, agora, "", ack)
     }
     var desde = atual.desdeMs
     if (atual.estado != "pending") { desde = agora }
     var decorrido = agora - desde
     if (decorrido >= duracaoMs) {
-        return EstadoAlerta(atual.name, "firing", valor, agora, agora, "")
+        return EstadoAlerta(atual.name, "firing", valor, agora, agora, "", ack)
     }
-    return EstadoAlerta(atual.name, "pending", valor, agora, desde, "")
+    return EstadoAlerta(atual.name, "pending", valor, agora, desde, "", ack)
 }
 
 EstadoAlerta estadoDeErro(String nome, String mensagem, Long agora) {
-    return EstadoAlerta(nome, "error", 0.0, agora, agora, mensagem)
+    return EstadoAlerta(nome, "error", 0.0, agora, agora, mensagem, 0)
 }
 
 test "condicaoSatisfeita gt" {
@@ -307,17 +309,35 @@ test "firing persiste enquanto a condição continua verdadeira" {
     assert(e2.estado == "firing")
 }
 
-test "condição falsa recupera para ok" {
+test "ack sobrevive a ticks de condição verdadeira e some na recuperação" {
     var e0 = estadoInicial("a")
     var e1 = avancarEstado(e0, true, 95.0, 1000, 0)
-    var e2 = avancarEstado(e1, false, 10.0, 2000, 0)
-    assert(e2.estado == "ok")
-    assert(e2.valor == 10.0)
+    var reconhecido = EstadoAlerta(e1.name, e1.estado, e1.valor, e1.ultimaAvaliacao, e1.desdeMs, e1.erro, 2000)
+    var e2 = avancarEstado(reconhecido, true, 96.0, 7000, 0)
+    assert(e2.estado == "firing")
+    assert(e2.ackedMs == 2000)
 
-    var p0 = estadoInicial("a")
-    var p1 = avancarEstado(p0, true, 95.0, 1000, 60000)
-    var p2 = avancarEstado(p1, false, 10.0, 2000, 60000)
+    var e3 = avancarEstado(e2, false, 10.0, 8000, 0)
+    assert(e3.estado == "ok")
+    assert(e3.ackedMs == 0)
+}
+
+test "ack em pending preserva estado pendente" {
+    var e0 = estadoInicial("a")
+    var p = avancarEstado(e0, true, 95.0, 1000, 60000)
+    var reconhecido = EstadoAlerta(p.name, p.estado, p.valor, p.ultimaAvaliacao, p.desdeMs, p.erro, 2000)
+    var p2 = avancarEstado(reconhecido, true, 96.0, 31000, 60000)
+    assert(p2.estado == "pending")
+    assert(p2.ackedMs == 2000)
+}
+
+test "recuperação de pending zera o ack" {
+    var e0 = estadoInicial("a")
+    var p = avancarEstado(e0, true, 95.0, 1000, 60000)
+    var reconhecido = EstadoAlerta(p.name, p.estado, p.valor, p.ultimaAvaliacao, p.desdeMs, p.erro, 2000)
+    var p2 = avancarEstado(reconhecido, false, 10.0, 30000, 60000)
     assert(p2.estado == "ok")
+    assert(p2.ackedMs == 0)
 }
 
 test "erro de consulta vira estado error isolado" {
@@ -406,9 +426,9 @@ List<EstadoAlertaOut> estadosParaSaida(List<Alerta> alertas, Map<String, EstadoA
         var encontrado = estados.get(a.name)
         var e = estadoInicial(a.name)
         if (encontrado != null) {
-            e = EstadoAlerta(encontrado.name, encontrado.estado, encontrado.valor, encontrado.ultimaAvaliacao, encontrado.desdeMs, encontrado.erro)
+            e = EstadoAlerta(encontrado.name, encontrado.estado, encontrado.valor, encontrado.ultimaAvaliacao, encontrado.desdeMs, encontrado.erro, encontrado.ackedMs)
         }
-        saida.add(EstadoAlertaOut(a.name, a.title, a.metric, a.severidade, e.estado, e.valor, a.operador, a.limiar, e.ultimaAvaliacao, e.erro))
+        saida.add(EstadoAlertaOut(a.name, a.title, a.metric, a.severidade, e.estado, e.valor, a.operador, a.limiar, e.ultimaAvaliacao, e.erro, e.ackedMs))
         i = i + 1
     }
     return saida

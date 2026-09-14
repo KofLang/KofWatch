@@ -98,6 +98,16 @@ de pé na 8080 (CORS já aberto nos GETs).
   fn=<fnc>&windowMs=`; `timeseries` → `/api/query/:name?from=&to=`.
 - `dashboards/validacao.json` é um manifesto de prova com os 3 tipos.
 
+### Alertas (motor declarativo + reconhecimento)
+
+- Regras em `alerts/*.json`; `GET /api/alerts` lista estados
+  (`ok|pending|firing|error`); `duracaoMs > 0` mantém `pending` até
+  completar a duração sustentada.
+- Reconhecer um alerta pendente: `POST /api/alerts/:name/ack` grava
+  `ackedMs` (persistente entre ticks; zerado na recuperação para `ok`).
+  No dashboard, o cartão do alerta pendente expõe o botão
+  "reconhecer <nome>".
+
 Alternativa webview nativo (GraalJS embarcado + WebKitGTK):
 
 ```bash

@@ -17,13 +17,20 @@
   `pending`). O scheduler `alerts.checkMs` reavalia todas as regras a
   cada tick via `agregar` (nenhum mecanismo de consulta paralelo);
   estado persistido em memória entre ticks; erro de consulta vira
-  estado `error` isolado por regra. API: `GET /api/alerts` (todos os
-  estados) e `GET /api/alerts/:name` (404 se não existe, 400 se nome
-  inválido). Provas: suíte 16/16 em `kof test Alerts.kf`; ciclo
-  completo end-to-end com `alerts.checkMs=5000` — ingestão `cpu=90` →
-  `cpu-alta` firing (log "alertas disparados: 1 de 3"); `cpu=30` → ok;
-  `gpu.temp=91` com `duracaoMs=12000` → pending (~6s) → firing
-  (~12s) → ok após resfriar; 404/400 corretos.
+  estado `error` isolado por regra. **Reconhecimento (ack):** quando um
+  alerta entra em `pending`, `POST /api/alerts/:name/ack` grava
+  `ackedMs` no estado da regra (persistente entre ticks, sobrevive a
+  reload do browser; zerado na recuperação). API: `GET /api/alerts`
+  (todos os estados) e `GET /api/alerts/:name` (404 se não existe, 400
+  se nome inválido). Front: botão "reconhecer <nome>" no cartão quando
+  pendente, com status textual de confirmação. Provas: suíte 18/18 em
+  `kof test Alerts.kf`; ciclo completo end-to-end com
+  `alerts.checkMs=5000` — ingestão `cpu=90` → `cpu-alta` firing (log
+  "alertas disparados: 1 de 3"); `cpu=30` → ok; `gpu.temp=95` com
+  `duracaoMs>tick` → pending → clique no botão no browser → `ackedMs`
+  setado e preservado no tick seguinte (firing com ack) → `ok` +
+  `ackedMs=0` após resfriar; reload do browser mostrou o estado
+  persistido; 404/400 corretos.
 - **Descoberta de plataforma (14/09): o `kof run` lê `kof.config`, não
   `config.properties`** — o template do `kof config gen` diz
   "descomente para sobrescrever", mas o arquivo gerado com

@@ -7,6 +7,32 @@
 
 ## O que está pronto e provado
 
+- **Fase 4 — motor de alertas: COMPLETO e validado end-to-end (14/09)** —
+  regras declarativas em JSON no diretório `alerts/` (config
+  `alerts.dir`), mesmo formato de manifesto dos dashboards
+  (`Alerts.kf`: decode → validação → normalização → estado no runtime).
+  Cada regra declara `metric`, `fnc` (avg|sum|min|max|count), `operador`
+  (gt|gte|lt|lte|eq|neq), `limiar`, `janelaMs` e `duracaoMs` (0 dispara
+  direto; >0 exige condição sustentada, com estado intermediário
+  `pending`). O scheduler `alerts.checkMs` reavalia todas as regras a
+  cada tick via `agregar` (nenhum mecanismo de consulta paralelo);
+  estado persistido em memória entre ticks; erro de consulta vira
+  estado `error` isolado por regra. API: `GET /api/alerts` (todos os
+  estados) e `GET /api/alerts/:name` (404 se não existe, 400 se nome
+  inválido). Provas: suíte 16/16 em `kof test Alerts.kf`; ciclo
+  completo end-to-end com `alerts.checkMs=5000` — ingestão `cpu=90` →
+  `cpu-alta` firing (log "alertas disparados: 1 de 3"); `cpu=30` → ok;
+  `gpu.temp=91` com `duracaoMs=12000` → pending (~6s) → firing
+  (~12s) → ok após resfriar; 404/400 corretos.
+- **Descoberta de plataforma (14/09): o `kof run` lê `kof.config`, não
+  `config.properties`** — o template do `kof config gen` diz
+  "descomente para sobrescrever", mas o arquivo gerado com
+  `--output config.properties` é IGNORADO pelo runtime: todas as
+  chaves ficam nos defaults. Probe mínimo em `/tmp/kofdbg` provou: o
+  runtime procura `kof.config` no CWD (também aceita `KOF_CONFIG`
+  apontando o caminho). Correção no KofWatch: renomear para
+  `kof.config`. Sem isso, o teste de `duracaoMs` era impossível (tick
+  default 60s apagava a amostra da janela antes da duração).
 - **Fase 3 — painel `stat`, agregação e unidade: COMPLETO e validado
   end-to-end (13/09)** — terceiro tipo de painel e metadados de
   apresentação no manifesto: `stat` (número agregado em destaque, com
@@ -158,12 +184,16 @@ seguinte) e botão atualizar, tudo sem erros no console.
 
 ## Como está rodando agora (ambiente desta sessão)
 
-- Backend: porta 8080, banco limpo com 3 séries de semeadura
-  (cpu.busy, gpu.temp, mem) + validação Etapa A ativa; concorrência
-  provada (20 POST + 20 GET paralelos, 20/20 amostras persistidas).
-  Desde 13/09 também serve os manifestos: `/api/dashboards` e
-  `/api/dashboard/system` ativos, manifesto `dashboards/system.json`
-  com 3 painéis (CPU ocupada, GPU temperatura, Memória).
+- Backend: porta 8080, subido com `kof run --deps Main.kf web/Index.kf`
+  e `kof.config` em vigor (`alerts.checkMs=5000` para validação
+  rápida); banco com 3 séries de semeadura (cpu.busy, gpu.temp, mem) +
+  validação Etapa A ativa; concorrência provada (20 POST + 20 GET
+  paralelos, 20/20 amostras persistidas). Desde 13/09 também serve os
+  manifestos: `/api/dashboards` e `/api/dashboard/system` ativos,
+  manifesto `dashboards/system.json` com 3 painéis (CPU ocupada, GPU
+  temperatura, Memória). Desde 14/09, motor de alertas ativo com
+  `alerts/latencia.json` (3 regras, `cpu-alta`, `memoria-critica`,
+  `gpu-quente`).
 - Dashboard: `./scripts/build-dashboard.sh /tmp/kofwatch-dash-test` +
   `python3 -m http.server 8765 --directory /tmp/kofwatch-dash-test`
   — http://localhost:8765/ (build COM patch automático do fetch).

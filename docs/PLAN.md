@@ -60,9 +60,31 @@ neste plano — nada aqui é suposição.
     alias nem annotation (13/09). Campo `fnc` no record só decodeia de
     `"fnc"` no JSON; `"fn"` decodeia `null` silenciosamente e o erro só
     aparece depois, na validação do manifesto.
-11. **`Double.longValue()` compila no jvm mas não existe no codegen js** —
+11. **`Double.longValue()` compila no jvm mas NÃO existe no codegen js** —
     `TypeError: valor.longValue is not a function` em runtime (13/09).
     Para texto, usar `valor.toString()`.
+12. **`kof run` lê `kof.config`, não `config.properties` (gap novo, 14/09)** —
+    o template do `kof config gen` inverte o nome: gerado com
+    `--output config.properties`, o arquivo é IGNORADO pelo runtime
+    (`config.int`/`config.str` sempre devolvem o default). Probe mínimo
+    (`/tmp/kofdbg`): arquivo renomeado para `kof.config` no CWD → chaves
+    lidas; `KOF_CONFIG=/caminho` também funciona. Deu falta no KofWatch:
+    `alerts.checkMs=5000` não tinha efeito alguma, o tick ficava em 60s
+    e o alerta com `duracaoMs=12000` nunca chegava a firing. Repro
+    mínima: `kof run probe.kf` com `config.int("k.a", 1)` e
+    `kof.config` → lê; renomeado `config.properties` → default.
+    Classificação: Kof toolchain (o `kof config gen` escreve para
+    `config.properties`, nome que o runtime não procura).
+    Workaround no KofWatch: arquivo chama-se `kof.config` (o template
+    gerado foi movido para esse nome).
+
+### Config (gap 14/09)
+
+`kof config gen . --target jvm` *(sem `--output`)* gera `kof.config` —
+nome que o `kof run` realmente carrega do CWD (ou `KOF_CONFIG`). O
+uso documentado no repo até 13/09 (`--output config.properties`)
+produzia um arquivo IGNORADO pelo runtime: todas as chaves pendiam dos
+defaults. Registrado como gap 12 do §1; o KofWatch renomeou o arquivo.
 
 ---
 
@@ -418,3 +440,42 @@ Dois fatos novos de plataforma descobertos na Fase 3 (detalhes no §1):
 2. `Double.longValue()` compila no jvm mas NÃO existe no codegen js
    (`TypeError: valor.longValue is not a function` em runtime, 13/09).
    Para texto, usar `valor.toString()`.
+
+### Motor de alertas (Fase 4, concluída 14/09)
+
+Regras declarativas em JSON no diretório `alerts/` (config
+`alerts.dir`, default `alerts`), mesmo padrão dos manifestos: arquivo
+`{"name": "<arquivo>", "alerts": [...]}`, decode tipado por
+`AlertaManifest` (todo campo String — Gap do decoder), validação
+(`errosDeAlerta`: name/title/metric/operador/limiar/janelas), 
+normalização (limiar numérico, janelas default 60s/0s) e estado
+`EstadoAlerta` mantido no runtime. Contratos em `Alerts.kf`, reuso da
+infra de agregação (`agregar` + `expressaoDe` de Storage.kf) para
+computar o valor da regra — nenhum mecanismo de consulta paralelo.
+
+- **Máquina de estados** (`avancarEstado`): `ok` → condição verdadeira:
+  `duracaoMs=0` vira `firing` no próprio tick; `duracaoMs>0` vira
+  `pending` (marca `desdeMs`) e só vira `firing` quando decorrido >=
+  duracaoMs; condição falsa em qualquer estado recupera direto para
+  `ok`. Erro de consulta → estado `error` isolado por regra (não
+  contaminar vizinhas).
+- **Scheduler** (`alerts.checkMs`, default 60s): reavalia TODAS as
+  regras por tick e troca o mapa de estados; logs só quando há
+  `firing` ("alertas disparados: N de M"). Dispara também no startup
+  (primeira avaliação imediata).
+- **API**: `GET /api/alerts` (todos) e `GET /api/alerts/:name` (404 se
+  não existe, 400 se nome inválido — mesma disciplina das rotas de
+  dashboard).
+- **Provas (14/09, com tick de 5s via `kof.config`)**: suíte 16/16
+  `kof test Alerts.kf`; ingestão `cpu=90` → `cpu-alta` firing no tick
+  (log "alertas disparados: 1 de 3"); `cpu=30` → ok no tick seguinte;
+  `gpu.temp=91` com `duracaoMs=12000` → pending (~6s, valor 91.0) →
+  firing (~12s+1 tick) → ok após resfriar (40.0); 404 e 400 de nome
+  inválido na rota por nome.
+
+Nota de execução: o teste do `duracaoMs` foi impossível (ou
+indistinguível de "não funciona") até renomear a config — com o tick
+default de 60s, a janela de 60s apagava a amostra antes da duração.
+Prova indireta de como o bug se escondia: o `avancarEstado` tinha os
+16 testes verdes em isolate; o problema era de config, não de código —
+"feature que não dispara" só apareceu end-to-end.

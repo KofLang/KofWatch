@@ -14,6 +14,9 @@ sem dependências além do driver H2 (`kofdeps`).
   com atualização automática a cada 3s e botão "atualizar" manual.
 - **Modelo**: série temporal = `(name, labels)`; cada amostra = `(ts, val)`.
   Labels em string canônica `k=v,k=v` ordenada.
+- **Alertas**: regras declarativas em `alerts/*.json`; scheduler reavalia
+  por `fnc` sobre a janela e mantém máquina de estados
+  `ok → pending → firing → ok` (respeitando `duracaoMs`).
 
 ## Rodando
 
@@ -57,19 +60,24 @@ curl -s -X POST localhost:8080/api/metrics \
 | `/api/metrics` | GET | lista de séries (`name, labels, last, lastTs, count`) |
 | `/api/query/:name` | GET | amostras (`?from=&to=&labels=`) |
 | `/api/aggregate/:name` | GET | `?fn=avg\|sum\|min\|max\|count&windowMs=` |
+| `/api/alerts` | GET | estados de todas as regras de `alerts/` |
+| `/api/alerts/:name` | GET | estado de uma regra (404 se não existe) |
 
 GETs retornam `Access-Control-Allow-Origin: *`.
 
 ## Testes
 
 ```bash
+$KOF test Alerts.kf
 $KOF test Labels.kf
 ```
 
-A suíte (canonicalização de labels) vive no próprio arquivo de fonte.
-Detalhes de desenvolvimento em [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md);
-plano e gaps da plataforma em [docs/PLAN.md](docs/PLAN.md); retrato do
-estado do projeto em [docs/STATUS.md](docs/STATUS.md).
+Suítes vivem nos próprios arquivos de fonte (alertas: 16 testes de
+operadores, validação, normalização e máquina de estados; labels:
+canonicalização). Detalhes de desenvolvimento em
+[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md); plano e gaps da plataforma
+em [docs/PLAN.md](docs/PLAN.md); retrato do estado do projeto em
+[docs/STATUS.md](docs/STATUS.md).
 
 ## Estrutura
 
@@ -78,6 +86,8 @@ Main.kf      main() único: config, db, rotas, scheduler
 Model.kf     records de domínio
 Storage.kf   DDL/insert/query/agregação/retenção (kof.db + H2)
 Labels.kf    canonicalização de labels + suíte test
+Alerts.kf    regras de alerta: validação, máquina de estados + suíte test
+alerts/*.json    regras declarativas (metric, fnc, operador, limiar, janelas)
 web/Index.kf dashboard kof-ui ao vivo (polling + Canvas)
 Manifest.kf manifesto JSON -> validacao, normalizacao e modelo de paineis
 dashboards/*.json  dashboards declarativos (system, validacao)

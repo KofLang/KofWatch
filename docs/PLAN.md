@@ -77,6 +77,22 @@ neste plano — nada aqui é suposição.
     `config.properties`, nome que o runtime não procura).
     Workaround no KofWatch: arquivo chama-se `kof.config` (o template
     gerado foi movido para esse nome).
+13. **`json.decode<T>` exige TODAS as chaves do record presentes no JSON
+    (gap novo, 14/09)** — omitir campo (mesmo nullable/opcional do ponto
+    de vista do domínio) lança exceção no decode, que cai no catch de
+    "JSON inválido" e MASCARA erros de validação posteriores. Prova:
+    sonda `ruim-temp.json` sem `fromMs`/`windowMs` → warn de JSON
+    inválido; mesmos dados com as 7 chaves → warn correto de validação
+    (`panels[0].fn inválido`). É a razão da convenção do manifesto
+    declarar sempre todos os campos.
+14. **Validação de nome de métrica era omissa nas rotas de dados
+    (corrigido, 14/09)** — `erroDeNome` existia para manifestos/alertas,
+    mas `POST /api/metrics`, `GET /api/query/:name` e
+    `GET /api/aggregate/:name` aceitavam qualquer string: ingestão de
+    `"INVA LIDO"` → 201, persistia no H2 e poluía `/api/metrics`.
+    Correção: helper `erroDeMetrica` em `Main.kf` reusa `erroDeNome`
+    nas três rotas (400 com `{"erro": ...}`, formato existente). Contrato
+    de nomes agora é uniforme em toda a API (a-z 0-9 . _ -, máx 64).
 
 ### Config (gap 14/09)
 

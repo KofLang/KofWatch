@@ -7,6 +7,47 @@
 
 ## O que está pronto e provado
 
+- **Correção — validação de nome de métrica nas rotas de dados (14/09)** —
+  `POST /api/metrics`, `GET /api/query/:name` e
+  `GET /api/aggregate/:name` aceitavam qualquer string como nome de série
+  (prova: ingestão de `"INVA LIDO"` → 201, persistia no H2 e aparecia em
+  `/api/metrics`; query do nome com espaço → 200). As rotas de
+  dashboards/alertas já validavam nome (400/404 corretos) — a fenda era
+  só no caminho de dados. Agora as três rotas reusam `erroDeNome` via
+  helper novo `erroDeMetrica` (whitelist `a-z 0-9 . _ -`, máx 64, mesma
+  dos manifestos), devolvendo `400 {"erro": ...}` no formato existente.
+  Nenhum contrato mudou: nomes válidos seguem idênticos. Provas:
+  ingestão inválida/query/aggregate → 3×400 com mensagem específica;
+  ingestão `cpu.busy` → 201; query e aggregate válidos → 200 com dados;
+  alertas e dashboards sem regressão (400/404/200 corretos); suítes
+  Alerts 20/20, Labels 10/10, Manifest 3/3; `kof check .` limpo
+  (6 arquivos). Resíduo: as duas amostras gravadas no banco antes do
+  fix (`INVA LIDO` ids 268/269) seguem em `data/kofwatch.mv.db` — inofensivas
+  (só aparecem em `/api/metrics`), mas o banco pode ser limpo apagando o
+  diretório `data/` se quiser um estado 100% higienizado.
+- **Correção — validação de `fn` pós-normalização no pipeline de
+  manifestos (14/09)** — duas fendas fechadas em `Manifest.kf`:
+  (1) `fn` inválido em painel `stat` só estourava em runtime (500 no
+  polling do front a cada pulso, matando o painel); (2) a validação
+  rodava sobre o `PainelManifest` bruto ANTES de `normalizarPainel`,
+  então `fn` em painel não-`stat` escapava (a normalização zera
+  `fnc` fora de `stat`, mas a mensagem era construída antes). Agora
+  `validarManifest` valida painéis já normalizados
+  (`errosDePainel(normalizarPainel(...))`) e `errosDePainel` recebe
+  `Painel` (pós-normalização), rejeitando `fnc` fora da whitelist
+  `avg|sum|min|max|count` com helper novo `fncValida`. Manifesto ruim
+  é negado no carregamento com warn específico — nenhum contrato de
+  API mudou, front intocado. Provas: suíte 3/3 em `kof test
+  Manifest.kf`; `kof check .` limpo (6 arquivos); sonda end-to-end
+  `dashboards/ruim-temp.json` com `"fnc":"mediana"` → warn
+  `manifesto inválido ignorado (...): panels[0].fn inválido (use avg |
+  sum | min | max | count): mediana` e dashboard fora de
+  `/api/dashboards`; runtime — `fn=count` →
+  `{"funcao":"count","valor":N}` e `fn=mediana` → erro limpo de
+  agregação inválida. Descoberta de plataforma no caminho (ver PLAN
+  §1, gap 13): `json.decode` exige TODAS as chaves do record presentes
+  no JSON — omitir campo opcional estoura no catch como "JSON
+  inválido" e mascara a mensagem de validação.
 - **Correção — `GET /api/alerts/:name` era consulta pura de novo (14/09)** —
   a rota tinha caído como cópia do handler de ack (mutava `ackedMs` e
   exigia pending/firing com 409). Agora é consulta pura: responde 200

@@ -52,6 +52,11 @@ String? erroDeLabels(String? bruto) {
     }
 }
 
+String? erroDeMetrica(String? nome) {
+    if (nome == null) { return "name é obrigatório" }
+    return erroDeNome("" + nome)
+}
+
 main() {
     var app = web.app()
     var db = db.connect(config.str("db.url", "jdbc:h2:./data/kofwatch;AUTO_SERVER=TRUE"))
@@ -116,6 +121,10 @@ main() {
             return status(400, json.encode(ErroOut("corpo inválido: JSON malformado")))
         }
         if (entrada != null) {
+            var erroNome = erroDeMetrica(entrada.name)
+            if (erroNome != null) {
+                return status(400, json.encode(ErroOut(erroNome)))
+            }
             var erro = erroDeIngestao(entrada)
             if (erro != null) {
                 return status(400, json.encode(ErroOut(erro)))
@@ -136,6 +145,10 @@ main() {
 
     app.get("/api/query/:name") {
         headerSet("Access-Control-Allow-Origin", "*")
+        var erroMetrica = erroDeMetrica(param("name"))
+        if (erroMetrica != null) {
+            return status(400, json.encode(ErroOut(erroMetrica)))
+        }
         var erroFrom = erroDeQuery("from")
         if (erroFrom != null) { return status(400, json.encode(ErroOut(erroFrom))) }
         var erroTo = erroDeQuery("to")
@@ -151,6 +164,10 @@ main() {
 
     app.get("/api/aggregate/:name") {
         headerSet("Access-Control-Allow-Origin", "*")
+        var erroMetrica = erroDeMetrica(param("name"))
+        if (erroMetrica != null) {
+            return status(400, json.encode(ErroOut(erroMetrica)))
+        }
         var erroFn = erroDeQuery("windowMs")
         if (erroFn != null) { return status(400, json.encode(ErroOut(erroFn))) }
         var nome = query("fn")

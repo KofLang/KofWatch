@@ -18,6 +18,11 @@ Int digitoValido(String c) {
     return validos.contains(c)
 }
 
+// mesma whitelist aceita pelo runtime de agregação (expressaoDe em Main.kf)
+Bool fncValida(String fnc) {
+    return fnc == "avg" || fnc == "sum" || fnc == "min" || fnc == "max" || fnc == "count"
+}
+
 String? erroDeNome(String nome) {
     if (nome == null) { return "name é obrigatório" }
     var limpo = nome.trim()
@@ -33,39 +38,22 @@ String? erroDeNome(String nome) {
     return null
 }
 
-List<String> errosDePainel(PainelManifest painel, Int indice) {
-    var erros = listOf<String>()
+// valida o painel já normalizado: campos com default aplicado não podem
+// escapar da validação (fnc é zerado fora de stat; stat sem fn vira avg)
+List<String> errosDePainel(Painel painel, Int indice) {
     var onde = "panels[" + indice.toString() + "]"
-    if (painel.title == null) {
-        erros.add(onde + ".title é obrigatório")
-    } else if (painel.title.trim() == "") {
+    var erros = listOf<String>()
+    if (painel.title == null || painel.title.trim() == "") {
         erros.add(onde + ".title é obrigatório")
     }
-    if (painel.type == null) {
-        erros.add(onde + ".type é obrigatório (timeseries | gauge)")
-    } else if (painel.type.trim() == "") {
-        erros.add(onde + ".type é obrigatório (timeseries | gauge)")
-    } else if (painel.type != "timeseries" && painel.type != "gauge" && painel.type != "stat") {
+    if (painel.type != "timeseries" && painel.type != "gauge" && painel.type != "stat") {
         erros.add(onde + ".type inválido (use timeseries | gauge | stat): " + painel.type)
     }
-    if (painel.metric == null) {
-        erros.add(onde + ".metric é obrigatório")
-    } else if (painel.metric.trim() == "") {
+    if (painel.metric == null || painel.metric.trim() == "") {
         erros.add(onde + ".metric é obrigatório")
     }
-    if (painel.fromMs != null) {
-        if (painel.fromMs < 0) {
-            erros.add(onde + ".fromMs não pode ser negativo")
-        }
-    }
-    if (painel.windowMs != null) {
-        if (painel.windowMs < 0) {
-            erros.add(onde + ".windowMs não pode ser negativo")
-        }
-    }
-    var agregacao = painel.fnc
-    if (agregacao != null && agregacao != "" && agregacao != "avg" && agregacao != "sum" && agregacao != "min" && agregacao != "max" && agregacao != "count") {
-        erros.add(onde + ".fn inválido (use avg | sum | min | max | count): " + agregacao)
+    if (painel.fnc != "" && fncValida(painel.fnc) == false) {
+        erros.add(onde + ".fn inválido (use avg | sum | min | max | count): " + painel.fnc)
     }
     return erros
 }
@@ -96,7 +84,7 @@ List<String> validarManifest(DashboardManifest bruto) {
     }
     var i = 0
     while (i < bruto.panels.size) {
-        var errosPainel = errosDePainel(bruto.panels.get(i), i)
+        var errosPainel = errosDePainel(normalizarPainel(bruto.panels.get(i)), i)
         var j = 0
         while (j < errosPainel.size) {
             erros.add(errosPainel.get(j))
@@ -212,4 +200,27 @@ List<DashboardResumo> resumirManifestos(List<Dashboard> todos) {
         i = i + 1
     }
     return resumos
+}
+
+test "errosDePainel rejeita fn inválido em stat" {
+    var ruim = normalizarPainel(PainelManifest("p", "stat", "cpu", "zap", "", 0, 0))
+    var erros = errosDePainel(ruim, 0)
+    assert(erros.size == 1)
+    assert(erros.get(0).contains("fn inválido"))
+    assert(erros.get(0).contains("zap"))
+}
+
+test "errosDePainel rejeita fn em painel não-stat" {
+    var serie = normalizarPainel(PainelManifest("p", "timeseries", "cpu", "avg", "", 0, 0))
+    assert(serie.fnc == "")
+    assert(errosDePainel(serie, 2).size == 0)
+}
+
+test "errosDePainel aceita painéis normalizados válidos" {
+    var stat = normalizarPainel(PainelManifest("p", "stat", "cpu", "count", "pct", 0, 0))
+    assert(errosDePainel(stat, 0).size == 0)
+    var serie = normalizarPainel(PainelManifest("p", "timeseries", "cpu", "", "", 0, 0))
+    assert(errosDePainel(serie, 0).size == 0)
+    var statSemFn = normalizarPainel(PainelManifest("p", "stat", "cpu", "", "", 0, 0))
+    assert(errosDePainel(statSemFn, 0).size == 0)
 }

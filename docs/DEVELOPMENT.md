@@ -67,6 +67,37 @@ disparam blocos `spawn { ... }` que reconsultam por painel — gauge via
 coluna de painéis via `View.bind` (substituição). O backend precisa estar
 de pé na 8080 (CORS já aberto nos GETs).
 
+### Contrato do manifesto (dashboards/*.json)
+
+```json
+{
+  "name": "system",
+  "title": "System",
+  "refreshMs": 3000,
+  "panels": [
+    { "title": "CPU busy", "type": "stat",   "metric": "cpu.busy",
+      "fnc": "count", "unit": "", "windowMs": 3600000, "fromMs": 0 },
+    { "title": "GPU temp", "type": "gauge",  "metric": "gpu.temp",
+      "fnc": "", "unit": "", "windowMs": 0, "fromMs": 3600000 },
+    { "title": "CPU busy", "type": "timeseries", "metric": "cpu.busy",
+      "fnc": "", "unit": "", "windowMs": 60000, "fromMs": 0 }
+  ]
+}
+```
+
+- `type` ∈ `timeseries | gauge | stat`; outros valores são rejeitados na
+  validação (`errosDePainel`) e o painel nem chega ao front.
+- `fnc` é a função de agregação: usado pelo `stat` (obrigatório ali;
+  padrão `avg` quando ausente/vazio) e ignorado pelos demais. O campo
+  chama-se `fnc` no JSON porque `json.decode` casa chaves pelo nome
+  EXATO do campo do record (`Manifest.kf`) e `fn` é palavra reservada da
+  linguagem — escrever `"fn"` no JSON decodeia `null` silenciosamente.
+- `unit` é um sufixo de formatação (`"pct"`, `"ms"`, ...), renderizado
+  junto ao valor em `stat` e `gauge`.
+- Consulta por painel no front: `stat`/`gauge` → `/api/aggregate/:name?
+  fn=<fnc>&windowMs=`; `timeseries` → `/api/query/:name?from=&to=`.
+- `dashboards/validacao.json` é um manifesto de prova com os 3 tipos.
+
 Alternativa webview nativo (GraalJS embarcado + WebKitGTK):
 
 ```bash

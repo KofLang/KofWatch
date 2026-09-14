@@ -57,6 +57,12 @@ main() {
     var db = db.connect(config.str("db.url", "jdbc:h2:./data/kofwatch;AUTO_SERVER=TRUE"))
     storageInit(db)
     var inicio = time.now()
+    var diretorioAlertas = config.str("alerts.dir", "alerts")
+    var alertas = carregarAlertas(diretorioAlertas)
+    var estadosAlertas = iniciarEstados(alertas, mapOf<String, EstadoAlerta>())
+    if (alertas.size > 0) {
+        log.info("alertas carregados: " + alertas.size + " de " + diretorioAlertas)
+    }
 
     app.get("/api/health") {
         headerSet("Access-Control-Allow-Origin", "*")
@@ -154,6 +160,68 @@ main() {
             return status(400, json.encode(ErroOut("agregação inválida: " + nome)))
         }
         return json.encode(AggOut(nome, agregar(db, param("name"), nome, ate - janela, ate)))
+    }
+
+    app.get("/api/alerts") {
+        headerSet("Access-Control-Allow-Origin", "*")
+        return json.encode(estadosParaSaida(alertas, estadosAlertas))
+    }
+
+    app.get("/api/alerts/:name") {
+        headerSet("Access-Control-Allow-Origin", "*")
+        var nome = param("name")
+        var erroNome = erroDeNomeAlerta(nome)
+        if (erroNome != null) {
+            return status(400, json.encode(ErroOut(erroNome)))
+        }
+        var a = buscarAlertaPorNome(alertas, nome)
+        if (a != null) {
+            var estado = estadoInicial(a.name)
+            var encontrado = estadosAlertas.get(a.name)
+            if (encontrado != null) {
+                estado = EstadoAlerta(encontrado.name, encontrado.estado, encontrado.valor, encontrado.ultimaAvaliacao, encontrado.desdeMs, encontrado.erro)
+            }
+            var saida = listOf<EstadoAlertaOut>()
+            saida.add(EstadoAlertaOut(a.name, a.title, a.metric, a.severidade, estado.estado, estado.valor, a.operador, a.limiar, estado.ultimaAvaliacao, estado.erro))
+            return json.encode(saida.get(0))
+        }
+        return status(404, json.encode(ErroOut("alerta não encontrado: " + nome)))
+    }
+
+    scheduler.every(config.int("alerts.checkMs", 60000)) {
+        var agora = time.now()
+        var novos = mapOf<String, EstadoAlerta>()
+        var i = 0
+        while (i < alertas.size) {
+            var a = alertas.get(i)
+            var encontrado = estadosAlertas.get(a.name)
+            var atual = estadoInicial(a.name)
+            if (encontrado != null) {
+                atual = EstadoAlerta(encontrado.name, encontrado.estado, encontrado.valor, encontrado.ultimaAvaliacao, encontrado.desdeMs, encontrado.erro)
+            }
+            var valor = 0.0
+            var proximo: EstadoAlerta
+            try {
+                valor = agregar(db, a.metric, a.fnc, agora - a.janelaMs, agora)
+                var condicao = condicaoSatisfeita(valor, a.operador, a.limiar)
+                proximo = avancarEstado(atual, condicao, valor, agora, a.duracaoMs)
+            } catch (Exception e) {
+                proximo = estadoDeErro(a.name, "consulta falhou", agora)
+            }
+            novos.put(a.name, proximo)
+            i = i + 1
+        }
+        estadosAlertas = novos
+        var j = 0
+        var disparados = 0
+        var lista = estadosParaSaida(alertas, estadosAlertas)
+        while (j < lista.size) {
+            if (lista.get(j).estado == "firing") { disparados = disparados + 1 }
+            j = j + 1
+        }
+        if (disparados > 0) {
+            log.info("alertas disparados: " + disparados + " de " + lista.size)
+        }
     }
 
     scheduler.every(config.int("retention.checkMs", 3600000)) {

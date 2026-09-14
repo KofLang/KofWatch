@@ -9,9 +9,9 @@ sem dependências além do driver H2 (`kofdeps`).
 - **Backend** (`Main.kf`, target `jvm`): API HTTP com ingestão e consulta
   de séries temporais; persistência em H2 em arquivo (`data/kofwatch`);
   auto-coleta periódica via `scheduler.every` e retenção de 24h.
-- **Dashboard** (`web/Index.kf`, target `js`): tabela de séries, seletor
-  e gráfico Canvas com área preenchida; atualização automática a cada 3s
-  e botão "atualizar" manual.
+- **Dashboard** (`web/Index.kf`, target `js`): painéis declarativos do
+  manifesto (`timeseries`, `gauge` e `stat`) renderizados em Canvas,
+  com atualização automática a cada 3s e botão "atualizar" manual.
 - **Modelo**: série temporal = `(name, labels)`; cada amostra = `(ts, val)`.
   Labels em string canônica `k=v,k=v` ordenada.
 
@@ -79,4 +79,6 @@ Model.kf     records de domínio
 Storage.kf   DDL/insert/query/agregação/retenção (kof.db + H2)
 Labels.kf    canonicalização de labels + suíte test
 web/Index.kf dashboard kof-ui ao vivo (polling + Canvas)
+Manifest.kf manifesto JSON -> validacao, normalizacao e modelo de paineis
+dashboards/*.json  dashboards declarativos (system, validacao)
 ```

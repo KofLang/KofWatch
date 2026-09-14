@@ -7,6 +7,19 @@
 
 ## O que está pronto e provado
 
+- **Fase 3 — painel `stat`, agregação e unidade: COMPLETO e validado
+  end-to-end (13/09)** — terceiro tipo de painel e metadados de
+  apresentação no manifesto: `stat` (número agregado em destaque, com
+  `fn` ∈ avg|sum|min|max|count, padrão `avg`) e `unit` (sufixo de
+  formatação, ex. `"pct"`, usado por stat e gauge). `PainelManifest`/
+  `Painel` ganharam `fnc`/`unit`; `errosDePainel` valida `fnc` contra
+  a whitelist e `normalizarPainel` aplica os padrões. O polling do
+  front usa `/api/aggregate/:name?fn=<fnc>&windowMs=...` no stat.
+  Manifesto de validação: `dashboards/validacao.json` (4 painéis).
+  Provas: `kof check .` limpo (5 arquivos); curl provou
+  `fn=count` → `{"funcao":"count","valor":N}` e `fn=avg` com valor real;
+  browser (Playwright) abriu `validacao` com 4 canvases pintados, 0
+  erros de console e pulsos sem duplicação.
 - **Fase 2 — frontend consome o dashboard declarativo: COMPLETO e
   validado end-to-end (13/09)** — o dashboard kof-ui (`web/Index.kf`)
   trocou a tabela de séries cruas pelos painéis reais do manifesto:
@@ -43,8 +56,10 @@
 - **Convenção do manifesto (workaround do gap do decoder)** — todo painel
   declara SEMPRE `fromMs` e `windowMs`; `0` significa "não se aplica" e
   `normalizarPainel` mapeia `0`/nulo para os padrões (3600000/60000);
-  validação rejeita só negativos. Causa raiz: `json.decode` em record
-  NPEia com campo `Long` ausente no JSON (PLAN §4, gap 13/09).
+  validação rejeita só negativos. A função de agregação chama-se `"fnc"`
+  no JSON (não `"fn"`): `json.decode` casa chaves pelo nome EXATO do
+  campo do record, sem alias (PLAN §1, gaps 13/09). Stat sem `"fnc"`
+  vira `avg`; demais tipos forçam agregação vazia.
 
 - **Backend JVM completo** (`Main.kf` + `Model.kf` + `Storage.kf`):
   ingestão e consulta de séries temporais em H2 em arquivo

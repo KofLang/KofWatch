@@ -1,0 +1,41 @@
+{
+  "name": "latencia",
+  "alerts": [
+    {
+      "name": "cpu-alta",
+      "title": "CPU media alta",
+      "metric": "cpu",
+      "fnc": "avg",
+      "operador": "gt",
+      "limiar": "80",
+      "janelaMs": "60000",
+      "duracaoMs": "0",
+      "severidade": "warning",
+      "descricao": "CPU media acima de 80 na janela de 1 minuto"
+    },
+    {
+      "name": "memoria-critica",
+      "title": "Memoria critica",
+      "metric": "memoria",
+      "fnc": "max",
+      "operador": "gte",
+      "limiar": "95",
+      "janelaMs": "30000",
+      "duracaoMs": "0",
+      "severidade": "critical",
+      "descricao": "Memoria no limite"
+    },
+    {
+      "name": "gpu-quente",
+      "title": "GPU quente sustentado",
+      "metric": "gpu.temp",
+      "fnc": "max",
+      "operador": "gt",
+      "limiar": "80",
+      "janelaMs": "60000",
+      "duracaoMs": "12000",
+      "severidade": "warning",
+      "descricao": "Temperatura da GPU acima de 80 por pelo menos 12 segundos"
+    }
+  ]
+}

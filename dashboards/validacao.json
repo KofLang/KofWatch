@@ -1,0 +1,38 @@
+{
+  "name": "validacao",
+  "title": "Validacao de tipos",
+  "refreshMs": 3000,
+  "panels": [
+    {
+      "title": "Total de amostras (cpu.busy)",
+      "type": "stat",
+      "metric": "cpu.busy",
+      "windowMs": 3600000,
+      "fromMs": 0,
+      "fnc": "count"
+    },
+    {
+      "title": "Media cpu.busy",
+      "type": "stat",
+      "metric": "cpu.busy",
+      "unit": "pct",
+      "windowMs": 600000,
+      "fromMs": 0,
+      "fnc": "avg"
+    },
+    {
+      "title": "GPU temperatura",
+      "type": "gauge",
+      "metric": "gpu.temp",
+      "fromMs": 0,
+      "windowMs": 60000
+    },
+    {
+      "title": "CPU ocupada",
+      "type": "timeseries",
+      "metric": "cpu.busy",
+      "fromMs": 3600000,
+      "windowMs": 0
+    }
+  ]
+}

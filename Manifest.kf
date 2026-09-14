@@ -1,8 +1,8 @@
-record PainelManifest(String title, String type, String metric, Long fromMs, Long windowMs)
+record PainelManifest(String title, String type, String metric, String fnc, String unit, Long fromMs, Long windowMs)
 
 record DashboardManifest(String name, String title, Long refreshMs, List<PainelManifest> panels)
 
-record Painel(String title, String type, String metric, Long fromMs, Long windowMs)
+record Painel(String title, String type, String metric, String fnc, String unit, Long fromMs, Long windowMs)
 
 record Dashboard(String name, String title, Long refreshMs, List<Painel> panels)
 
@@ -45,8 +45,8 @@ List<String> errosDePainel(PainelManifest painel, Int indice) {
         erros.add(onde + ".type é obrigatório (timeseries | gauge)")
     } else if (painel.type.trim() == "") {
         erros.add(onde + ".type é obrigatório (timeseries | gauge)")
-    } else if (painel.type != "timeseries" && painel.type != "gauge") {
-        erros.add(onde + ".type inválido: " + painel.type)
+    } else if (painel.type != "timeseries" && painel.type != "gauge" && painel.type != "stat") {
+        erros.add(onde + ".type inválido (use timeseries | gauge | stat): " + painel.type)
     }
     if (painel.metric == null) {
         erros.add(onde + ".metric é obrigatório")
@@ -62,6 +62,10 @@ List<String> errosDePainel(PainelManifest painel, Int indice) {
         if (painel.windowMs < 0) {
             erros.add(onde + ".windowMs não pode ser negativo")
         }
+    }
+    var agregacao = painel.fnc
+    if (agregacao != null && agregacao != "" && agregacao != "avg" && agregacao != "sum" && agregacao != "min" && agregacao != "max" && agregacao != "count") {
+        erros.add(onde + ".fn inválido (use avg | sum | min | max | count): " + agregacao)
     }
     return erros
 }
@@ -109,8 +113,14 @@ Painel normalizarPainel(PainelManifest bruto) {
     var janela = bruto.windowMs
     if (janela == null || janela <= 0) { janela = 60000 }
     var tipo = bruto.type
-    if (tipo != "gauge") { tipo = "timeseries" }
-    return Painel(bruto.title.trim(), tipo, bruto.metric.trim(), de, janela)
+    if (tipo != "gauge" && tipo != "stat") { tipo = "timeseries" }
+    var agregacao = bruto.fnc
+    if (agregacao == null) { agregacao = "" }
+    if (tipo == "stat" && agregacao == "") { agregacao = "avg" }
+    if (tipo != "stat") { agregacao = "" }
+    var unidade = bruto.unit
+    if (unidade == null) { unidade = "" }
+    return Painel(bruto.title.trim(), tipo, bruto.metric.trim(), agregacao, unidade, de, janela)
 }
 
 Dashboard normalizarManifest(DashboardManifest bruto) {

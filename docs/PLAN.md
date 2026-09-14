@@ -56,6 +56,13 @@ neste plano — nada aqui é suposição.
 9. **`List` não tem `sort` nem `join` na stdlib (0.3.22-beta)** — a ordenação
    canônica de labels usa contorno local isolado em Labels.kf, rotulado e
    previsto para sumir quando a stdlib cobrir sort/join (§4).
+10. **`json.decode<T>` casa chaves JSON pelo nome EXATO do campo** — sem
+    alias nem annotation (13/09). Campo `fnc` no record só decodeia de
+    `"fnc"` no JSON; `"fn"` decodeia `null` silenciosamente e o erro só
+    aparece depois, na validação do manifesto.
+11. **`Double.longValue()` compila no jvm mas não existe no codegen js** —
+    `TypeError: valor.longValue is not a function` em runtime (13/09).
+    Para texto, usar `valor.toString()`.
 
 ---
 
@@ -370,3 +377,44 @@ provado; manifesto restaurado em seguida).
   `null || <= 0` para os padrões (3600000/60000) e a validação passou a
   rejeitar só negativos. Classificação: Kof runtime (decoder), mesma
   família do apagamento de nullable em record.
+- **`json.decode` casa chaves JSON pelo nome EXATO do campo (gap novo,
+  13/09)** — sem alias nem annotation: campo `fnc` no record só decodeia
+  de `"fnc"` no JSON; `"fn"` decodeia `null` silenciosamente e o erro só
+  aparece depois, na validação do manifesto ("fn inválido ... : null").
+  Classificação: Kof runtime (decoder).
+
+### Painel stat, agregação e unidade (Fase 3, concluída 13/09)
+
+Terceiro tipo de painel e metadados de apresentação declarados no
+manifesto:
+
+- **`stat`** — número agregado em destaque (linha ciano + valor central +
+  rótulo "agregado"); o manifesto escolhe a função: `fn` ∈
+  `avg|sum|min|max|count` (padrão `avg` quando ausente). O polling usa
+  `/api/aggregate/:name?fn=<fnc>&windowMs=...` em vez de `/api/query`.
+- **`unit`** — sufixo de formatação (`"pct"`, `"ms"`, ...) renderizado
+  junto ao valor (stat e gauge) via `textoDeValor`.
+- **Contrato backend** — `PainelManifest`/`Painel` ganharam `fnc`/`unit`;
+  `errosDePainel` valida `fnc` contra a whitelist (com guard de `null`);
+  `normalizarPainel` aplica os padrões (`stat` sem `fn` → `avg`; demais
+  tipos forçam `""`). O campo chama-se `fnc` no código porque `fn` é
+  palavra reservada da linguagem (§1).
+
+Manifesto de validação: `dashboards/validacao.json` (4 painéis: stat
+`count`, stat `avg` com `unit=pct`, gauge, timeseries).
+
+Provas (13/09): `kof check .` limpo (5 arquivos); curl provou
+`/api/aggregate/cpu.busy?fn=count` → `{"funcao":"count","valor":N}` e
+`fn=avg` → valor real após POST de métricas; browser (Playwright) abriu
+`validacao` com 4 canvases pintados, 0 erros de console e pulsos sem
+duplicação; webview nativo reprovado por salto de taxa de consultas no
+backend (mesma técnica da Fase 2).
+
+Dois fatos novos de plataforma descobertos na Fase 3 (detalhes no §1):
+
+1. `json.decode` casa chaves JSON pelo nome EXATO do campo — `"fn"` no
+   JSON não popula `fnc` e só explode depois, na validação, como
+   `...fn inválido ... : null`. Os manifestos usam `"fnc"`.
+2. `Double.longValue()` compila no jvm mas NÃO existe no codegen js
+   (`TypeError: valor.longValue is not a function` em runtime, 13/09).
+   Para texto, usar `valor.toString()`.

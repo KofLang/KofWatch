@@ -4,11 +4,13 @@ record AmostraIn(Long ts, Double valor, String labels)
 
 record AggOut(String funcao, Double valor)
 
-record PainelFront(String title, String type, String metric, Long fromMs, Long windowMs)
+record PainelFront(String title, String type, String metric, String fnc, String unit, Long fromMs, Long windowMs)
 
 record DashboardFront(String name, String title, Long refreshMs, List<PainelFront> panels)
 
 record DashboardResumoFront(String name, String title, Long panels, String erro)
+
+record AlertaEstadoFront(String name, String title, String severidade, String estado, Double valor, String operador, Double threshold, Long lastEvaluation, String erro)
 
 List<Double> valoresDeTexto(String bruto) {
     var valores = listOf<Double>()
@@ -28,6 +30,14 @@ Double valorDeGaugeTexto(String bruto) {
     }
     var agg = json.decode<AggOut>(bruto)
     return agg.valor()
+}
+
+String textoDeValor(Double valor, String unidade) {
+    var corpo = valor.toString()
+    if (unidade == "") {
+        return corpo
+    }
+    return corpo + " " + unidade
 }
 
 List<List<Double> > traco(List<Double> pontos) {
@@ -101,6 +111,7 @@ Column celulaPainel(PainelFront p, List<Double> pontos) {
     var c = Canvas(508, 200)
     c.setStroke(Palette.gray)
     c.setLineWidth(1)
+    var estaVazio = pontos.size == 0
     if (p.type() == "gauge") {
         var valor = 0.0
         if (pontos.size > 0) {
@@ -125,7 +136,7 @@ Column celulaPainel(PainelFront p, List<Double> pontos) {
             c.stroke()
         }
         c.setFill(Palette.cyan)
-        c.fillText(valor.toString(), 234.0, 138.0)
+        c.fillText(textoDeValor(valor, p.unit()), 214.0, 138.0)
     } else if (p.type() == "timeseries") {
         var tracado = traco(pontos)
         var g = 0
@@ -162,11 +173,27 @@ Column celulaPainel(PainelFront p, List<Double> pontos) {
         }
         c.setFill(Palette.gray)
         c.fillText(resumoDe(pontos), 24.0, 16.0)
+    } else if (p.type() == "stat") {
+        var valor = 0.0
+        if (pontos.size > 0) {
+            valor = pontos.get(0)
+        }
+        c.setStroke(Palette.cyan)
+        c.setLineWidth(2)
+        c.beginPath()
+        c.moveTo(24.0, 176.0)
+        c.lineTo(484.0, 176.0)
+        c.stroke()
+        c.setFill(Palette.cyan)
+        c.fillText(textoDeValor(valor, p.unit()), 24.0, 140.0)
+        var rotuloFn = Label(p.fnc() + " de " + p.metric())
+        c.setFill(Palette.gray)
+        c.fillText("agregado", 24.0, 108.0)
     } else {
         c.setFill(Palette.gray)
         c.fillText("Painel nao suportado: " + p.type(), 24.0, 16.0)
     }
-    if (pontos.size == 0) {
+    if (estaVazio) {
         tipo.text = "(sem dados · " + formatoDe(pontos) + ")"
     }
     var celula = Column(listOf(rotulo, tipo, c))
@@ -187,6 +214,48 @@ Column colunaPaineis(List<PainelFront> paineis, List<List<Double> > dados) {
     }
     if (widgets.size == 0) {
         widgets = listOf(Label("nenhum painel no manifesto"))
+    }
+    return Column(widgets)
+}
+
+Column celulaAlerta(AlertaEstadoFront a) {
+    var rotulo = Label(a.title())
+    rotulo.fontSize = 13
+    rotulo.bold = true
+    var detalhe = Label(a.name() + " · " + a.operador() + " " + a.threshold().toString() + " · " + a.severidade())
+    detalhe.color = Palette.gray
+    detalhe.fontSize = 11
+    var medida = Label(a.estado())
+    medida.fontSize = 16
+    medida.bold = true
+    if (a.estado() == "firing") {
+        medida.color = Palette.red
+    } else if (a.estado() == "pending") {
+        medida.color = Palette.cyan
+    } else if (a.estado() == "error") {
+        medida.color = Palette.gray
+    } else {
+        medida.color = Palette.green
+    }
+    var texto = "valor atual " + a.valor().toString()
+    if (a.erro() != "") {
+        texto = texto + " · " + a.erro()
+    }
+    var sub = Label(texto)
+    sub.color = Palette.gray
+    sub.fontSize = 11
+    return Column(listOf(rotulo, detalhe, medida, sub))
+}
+
+Column colunaAlertas(List<AlertaEstadoFront> alertas) {
+    var widgets = listOf<Component>()
+    var i = 0
+    while (i < alertas.size) {
+        widgets.add(celulaAlerta(alertas.get(i)))
+        i = i + 1
+    }
+    if (widgets.size == 0) {
+        widgets = listOf(Label("nenhum alerta declarado em alerts/"))
     }
     return Column(widgets)
 }
@@ -229,10 +298,16 @@ main() {
 
     var zonaPaineis = View(Style(Theme.dark().background(), Theme.dark().text(), 8, 4))
 
+    var rotuloAlertas = Label("alertas")
+    rotuloAlertas.fontSize = 13
+    rotuloAlertas.bold = true
+
+    var zonaAlertas = View(Style(Theme.dark().background(), Theme.dark().text(), 8, 4))
+
     var colunas = listOf<Column>()
 
     var painelRaiz = View(Style(Theme.dark().background(), Theme.dark().text(), 16, 10))
-    painelRaiz.bind(Column(listOf(cabecalho, status, Hr(), rotuloDashboards, seletorDash, botaoAtualizar, Hr(), rotuloPaineis, zonaPaineis)))
+    painelRaiz.bind(Column(listOf(cabecalho, status, Hr(), rotuloDashboards, seletorDash, botaoAtualizar, Hr(), rotuloPaineis, zonaPaineis, Hr(), rotuloAlertas, zonaAlertas)))
     janela.bind(painelRaiz)
 
     try {
@@ -277,11 +352,27 @@ main() {
     }
 
     spawn {
+        try {
+            var brutoAlertas = await(http.get(base + "/api/alerts"))
+            var estados = json.decode<List<AlertaEstadoFront>>(brutoAlertas)
+            zonaAlertas.bind(colunaAlertas(estados))
+        } catch (String e) {
+            zonaAlertas.bind(Column(listOf(Label("alertas indisponiveis: " + e))))
+        }
+    }
+
+    spawn {
         var novoDados = listOf<List<Double> >()
         var i = 0
         while (i < paineis.size) {
             var p = paineis.get(i)
-            if (p.type() == "gauge") {
+            if (p.type() == "stat") {
+                var caminhoAgg = "/api/aggregate/" + p.metric() + "?fn=" + p.fnc() + "&windowMs=" + p.windowMs().toString()
+                var brutoAgg = await(http.get(base + caminhoAgg))
+                var um = listOf<Double>()
+                um.add(valorDeGaugeTexto(brutoAgg))
+                novoDados.add(um)
+            } else if (p.type() == "gauge") {
                 var brutoAgg = await(http.get(base + "/api/aggregate/" + p.metric() + "?fn=avg&windowMs=" + p.windowMs().toString()))
                 var um = listOf<Double>()
                 um.add(valorDeGaugeTexto(brutoAgg))
@@ -310,7 +401,13 @@ main() {
             var i = 0
             while (i < paineis.size) {
                 var p = paineis.get(i)
-                if (p.type() == "gauge") {
+                if (p.type() == "stat") {
+                    var caminhoAgg = "/api/aggregate/" + p.metric() + "?fn=" + p.fnc() + "&windowMs=" + p.windowMs().toString()
+                    var brutoAgg = await(http.get(base + caminhoAgg))
+                    var um = listOf<Double>()
+                    um.add(valorDeGaugeTexto(brutoAgg))
+                    novoDados.add(um)
+                } else if (p.type() == "gauge") {
                     var brutoAgg = await(http.get(base + "/api/aggregate/" + p.metric() + "?fn=avg&windowMs=" + p.windowMs().toString()))
                     var um = listOf<Double>()
                     um.add(valorDeGaugeTexto(brutoAgg))
@@ -328,6 +425,14 @@ main() {
             var novaPulso = colunaPaineis(paineis, dados)
             zonaPaineis.bind(novaPulso)
             colunas = listOf(novaPulso)
+
+            try {
+                var brutoAlertas = await(http.get(base + "/api/alerts"))
+                var estados = json.decode<List<AlertaEstadoFront>>(brutoAlertas)
+                zonaAlertas.bind(colunaAlertas(estados))
+            } catch (String e) {
+                zonaAlertas.bind(Column(listOf(Label("alertas indisponiveis: " + e))))
+            }
 
             status.text = "dashboard ativo | pulso " + (pulso + 1).toString()
             status.color = Palette.green

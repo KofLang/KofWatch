@@ -1,0 +1,427 @@
+record AlertaManifest(String name, String title, String metric, String fnc, String operador, String severidade, String limiar, String janelaMs, String duracaoMs, String descricao)
+
+record Alerta(String name, String title, String metric, String fnc, String operador, String severidade, Double limiar, Long janelaMs, Long duracaoMs, String descricao)
+
+record EstadoAlerta(String name, String estado, Double valor, Long ultimaAvaliacao, Long desdeMs, String erro)
+
+record EstadoAlertaOut(String name, String title, String metric, String severidade, String estado, Double valor, String operador, Double threshold, Long lastEvaluation, String erro)
+
+Bool condicaoSatisfeita(Double valor, String operador, Double limiar) {
+    if (operador == "gt") { return valor > limiar }
+    if (operador == "gte") { return valor >= limiar }
+    if (operador == "lt") { return valor < limiar }
+    if (operador == "lte") { return valor <= limiar }
+    if (operador == "eq") { return valor == limiar }
+    if (operador == "neq") { return valor != limiar }
+    return false
+}
+
+Int digitoNomeValido(String c) {
+    val validos = setOf(
+        "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+        "a", "b", "c", "d", "e", "f", "g", "h", "i", "j",
+        "k", "l", "m", "n", "o", "p", "q", "r", "s", "t",
+        "u", "v", "w", "x", "y", "z", ".", "_", "-"
+    )
+    return validos.contains(c)
+}
+
+// duplicado de Manifest.kf: kof test compila o arquivo isolado (PLAN §4,
+// gap de multi-arquivo) e o helper não resolve de lá
+String? erroDeNomeAlerta(String? nome) {
+    if (nome == null) { return "name é obrigatório" }
+    var texto = "" + nome
+    var limpo = texto.trim()
+    if (limpo == "") { return "name é obrigatório" }
+    if (limpo.length > 64) { return "name muito longo (máx 64): " + limpo }
+    var i = 0
+    while (i < limpo.length) {
+        if (digitoNomeValido(limpo.substring(i, i + 1)) == false) {
+            return "name inválido (use a-z, 0-9, ., _, -): " + limpo
+        }
+        i = i + 1
+    }
+    return null
+}
+
+String? erroDeOperador(String? operador) {
+    if (operador == null) { return "operador é obrigatório" }
+    var texto = "" + operador
+    var o = texto.trim()
+    if (o == "") { return "operador é obrigatório" }
+    if (o != "gt" && o != "gte" && o != "lt" && o != "lte" && o != "eq" && o != "neq") {
+        return "operador inválido (use gt | gte | lt | lte | eq | neq): " + o
+    }
+    return null
+}
+
+List<String> errosDeAlerta(AlertaManifest alerta) {
+    var erros = listOf<String>()
+    var erroNome = erroDeNomeAlerta(alerta.name)
+    if (erroNome != null) {
+        erros.add("name: " + erroNome)
+    }
+    if (alerta.title == null) {
+        erros.add("title é obrigatório")
+    } else {
+        var t = alerta.title
+        if (t.trim() == "") {
+            erros.add("title é obrigatório")
+        }
+    }
+    if (alerta.metric == null) {
+        erros.add("metric é obrigatório")
+    } else {
+        var m = alerta.metric
+        if (m.trim() == "") {
+            erros.add("metric é obrigatório")
+        }
+    }
+    var agregacao = alerta.fnc
+    if (agregacao != null && agregacao != "" && agregacao != "avg" && agregacao != "sum" && agregacao != "min" && agregacao != "max" && agregacao != "count") {
+        erros.add("fn inválido (use avg | sum | min | max | count): " + agregacao)
+    }
+    var erroOp = erroDeOperador(alerta.operador)
+    if (erroOp != null) {
+        erros.add(erroOp)
+    }
+    if (alerta.limiar == null) {
+        erros.add("limiar (threshold) é obrigatório")
+    } else {
+        var l = alerta.limiar
+        if (l.trim() == "") {
+            erros.add("limiar (threshold) é obrigatório")
+        } else {
+            try {
+                l.toDouble()
+            } catch (String e) {
+                erros.add("limiar deve ser numérico: " + l)
+            }
+        }
+    }
+    if (alerta.janelaMs != null) {
+        var j = alerta.janelaMs
+        try {
+            if (j.toLong() < 0) {
+                erros.add("windowMs não pode ser negativo")
+            }
+        } catch (String e) {
+            erros.add("windowMs deve ser inteiro: " + j)
+        }
+    }
+    if (alerta.duracaoMs != null) {
+        var d = alerta.duracaoMs
+        try {
+            if (d.toLong() < 0) {
+                erros.add("forMs não pode ser negativo")
+            }
+        } catch (String e) {
+            erros.add("forMs deve ser inteiro: " + d)
+        }
+    }
+    if (alerta.severidade != null && alerta.severidade != "" && alerta.severidade != "warning" && alerta.severidade != "critical" && alerta.severidade != "info") {
+        erros.add("severidade inválida (use info | warning | critical): " + alerta.severidade)
+    }
+    return erros
+}
+
+Alerta normalizarAlerta(AlertaManifest bruto) {
+    var agregacao = bruto.fnc
+    if (agregacao == null || agregacao == "") { agregacao = "avg" }
+    var severidade = bruto.severidade
+    if (severidade == null || severidade == "") { severidade = "warning" }
+    var limiar = 0.0
+    var limiarBruto = bruto.limiar
+    if (limiarBruto != null && limiarBruto.trim() != "") {
+        try {
+            limiar = limiarBruto.toDouble()
+        } catch (String e) {
+            limiar = 0.0
+        }
+    }
+    var janela = bruto.janelaMs
+    if (janela == null) { janela = "60000" } else {
+        var jl = janela.toLong()
+        if (jl <= 0) { janela = "60000" }
+    }
+    var duracao = bruto.duracaoMs
+    if (duracao == null || duracaoMsInvalida(duracao)) { duracao = "0" }
+    var titulo = bruto.title
+    if (titulo == null) { titulo = "" }
+    var metrica = bruto.metric
+    if (metrica == null) { metrica = "" }
+    var operador = bruto.operador
+    if (operador == null) { operador = "gt" }
+    var descricao = bruto.descricao
+    if (descricao == null) { descricao = "" }
+    return Alerta(bruto.name.trim(), titulo.trim(), metrica.trim(), agregacao, operador.trim(), severidade, limiar, janela.toLong(), duracao.toLong(), descricao)
+}
+
+Bool duracaoMsInvalida(String duracao) {
+    try {
+        return duracao.toLong() < 0
+    } catch (String e) {
+        return true
+    }
+}
+
+EstadoAlerta estadoInicial(String nome) {
+    return EstadoAlerta(nome, "ok", 0.0, 0, 0, "")
+}
+
+EstadoAlerta avancarEstado(EstadoAlerta atual, Bool condicao, Double valor, Long agora, Long duracaoMs) {
+    if (condicao == false) {
+        return EstadoAlerta(atual.name, "ok", valor, agora, agora, "")
+    }
+    if (duracaoMs <= 0) {
+        return EstadoAlerta(atual.name, "firing", valor, agora, agora, "")
+    }
+    var desde = atual.desdeMs
+    if (atual.estado != "pending") { desde = agora }
+    var decorrido = agora - desde
+    if (decorrido >= duracaoMs) {
+        return EstadoAlerta(atual.name, "firing", valor, agora, agora, "")
+    }
+    return EstadoAlerta(atual.name, "pending", valor, agora, desde, "")
+}
+
+EstadoAlerta estadoDeErro(String nome, String mensagem, Long agora) {
+    return EstadoAlerta(nome, "error", 0.0, agora, agora, mensagem)
+}
+
+test "condicaoSatisfeita gt" {
+    assert(condicaoSatisfeita(91.0, "gt", 80.0) == true)
+    assert(condicaoSatisfeita(80.0, "gt", 80.0) == false)
+    assert(condicaoSatisfeita(79.0, "gt", 80.0) == false)
+}
+
+test "condicaoSatisfeita gte" {
+    assert(condicaoSatisfeita(80.0, "gte", 80.0) == true)
+    assert(condicaoSatisfeita(79.9, "gte", 80.0) == false)
+}
+
+test "condicaoSatisfeita lt e lte" {
+    assert(condicaoSatisfeita(10.0, "lt", 20.0) == true)
+    assert(condicaoSatisfeita(20.0, "lt", 20.0) == false)
+    assert(condicaoSatisfeita(20.0, "lte", 20.0) == true)
+    assert(condicaoSatisfeita(21.0, "lte", 20.0) == false)
+}
+
+test "condicaoSatisfeita eq e neq" {
+    assert(condicaoSatisfeita(5.0, "eq", 5.0) == true)
+    assert(condicaoSatisfeita(5.1, "eq", 5.0) == false)
+    assert(condicaoSatisfeita(5.0, "neq", 5.0) == false)
+    assert(condicaoSatisfeita(5.1, "neq", 5.0) == true)
+}
+
+test "condicaoSatisfeita operador desconhecido é falso" {
+    assert(condicaoSatisfeita(91.0, "zap", 80.0) == false)
+}
+
+test "erroDeOperador rejeita inválidos e nulos" {
+    assert(erroDeOperador("gt") == erroDeOperador("neq"))
+    assert(erroDeOperador(null) == "operador é obrigatório")
+    assert(erroDeOperador("") == "operador é obrigatório")
+    assert(erroDeOperador("zap") == "operador inválido (use gt | gte | lt | lte | eq | neq): zap")
+    assert(erroDeOperador("zap") != erroDeOperador(""))
+}
+
+test "errosDeAlerta exige campos obrigatórios" {
+    var bruto = AlertaManifest(null, "CPU alta", "cpu.busy", "avg", "gt", "warning", "80", "300000", "60000", "")
+    var erros = errosDeAlerta(bruto)
+    assert(erros.size == 1)
+    assert(erros.get(0).contains("name"))
+
+    var semMetrica = AlertaManifest("cpu-alta", "CPU alta", "", "avg", "gt", "warning", "80", "300000", "60000", "")
+    assert(errosDeAlerta(semMetrica).size == 1)
+
+    var semLimiar = AlertaManifest("cpu-alta", "CPU alta", "cpu.busy", "avg", "gt", "warning", "", "300000", "60000", "")
+    assert(errosDeAlerta(semLimiar).size == 1)
+
+    var valido = AlertaManifest("cpu-alta", "CPU alta", "cpu.busy", "avg", "gt", "warning", "80", "300000", "60000", "")
+    assert(errosDeAlerta(valido).size == 0)
+}
+
+test "errosDeAlerta rejeita fn, operador, limiar e janelas inválidos" {
+    var fnRuim = AlertaManifest("a", "t", "m", "mediana", "gt", "warning", "80", "300000", "60000", "")
+    assert(errosDeAlerta(fnRuim).size == 1)
+
+    var opRuim = AlertaManifest("a", "t", "m", "avg", "zap", "warning", "80", "300000", "60000", "")
+    assert(errosDeAlerta(opRuim).size == 1)
+
+    var limiarTexto = AlertaManifest("a", "t", "m", "avg", "gt", "warning", "alto", "300000", "60000", "")
+    assert(errosDeAlerta(limiarTexto).size == 1)
+
+    var janelaNegativa = AlertaManifest("a", "t", "m", "avg", "gt", "warning", "80", "-5", "60000", "")
+    assert(errosDeAlerta(janelaNegativa).size == 1)
+
+    var duracaoNegativa = AlertaManifest("a", "t", "m", "avg", "gt", "warning", "80", "300000", "-1", "")
+    assert(errosDeAlerta(duracaoNegativa).size == 1)
+
+    var severidadeRuim = AlertaManifest("a", "t", "m", "avg", "gt", "panico", "80", "300000", "60000", "")
+    assert(errosDeAlerta(severidadeRuim).size == 1)
+}
+
+test "normalizarAlerta aplica padrões" {
+    var minimo = AlertaManifest("cpu-alta", "CPU alta", "cpu.busy", null, "gt", null, "80", null, null, null)
+    var alerta = normalizarAlerta(minimo)
+    assert(alerta.fnc == "avg")
+    assert(alerta.severidade == "warning")
+    assert(alerta.janelaMs == 60000)
+    assert(alerta.duracaoMs == 0)
+    assert(alerta.operador == "gt")
+    assert(alerta.limiar == 80.0)
+}
+
+test "estadoInicial começa em ok" {
+    var e = estadoInicial("cpu-alta")
+    assert(e.estado == "ok")
+    assert(e.valor == 0.0)
+    assert(e.erro == "")
+}
+
+test "forMs 0 dispara firing direto" {
+    var e0 = estadoInicial("a")
+    var e1 = avancarEstado(e0, true, 95.0, 1000, 0)
+    assert(e1.estado == "firing")
+    assert(e1.valor == 95.0)
+}
+
+test "ok para pending para firing respeitando forMs" {
+    var e0 = estadoInicial("a")
+    var e1 = avancarEstado(e0, true, 95.0, 1000, 60000)
+    assert(e1.estado == "pending")
+    assert(e1.desdeMs == 1000)
+
+    var e2 = avancarEstado(e1, true, 96.0, 31000, 60000)
+    assert(e2.estado == "pending")
+
+    var e3 = avancarEstado(e2, true, 97.0, 61000, 60000)
+    assert(e3.estado == "firing")
+}
+
+test "firing persiste enquanto a condição continua verdadeira" {
+    var e0 = estadoInicial("a")
+    var e1 = avancarEstado(e0, true, 95.0, 1000, 0)
+    var e2 = avancarEstado(e1, true, 96.0, 2000, 0)
+    assert(e2.estado == "firing")
+}
+
+test "condição falsa recupera para ok" {
+    var e0 = estadoInicial("a")
+    var e1 = avancarEstado(e0, true, 95.0, 1000, 0)
+    var e2 = avancarEstado(e1, false, 10.0, 2000, 0)
+    assert(e2.estado == "ok")
+    assert(e2.valor == 10.0)
+
+    var p0 = estadoInicial("a")
+    var p1 = avancarEstado(p0, true, 95.0, 1000, 60000)
+    var p2 = avancarEstado(p1, false, 10.0, 2000, 60000)
+    assert(p2.estado == "ok")
+}
+
+test "erro de consulta vira estado error isolado" {
+    var e = estadoDeErro("cpu-alta", "consulta falhou", 5000)
+    assert(e.estado == "error")
+    assert(e.erro == "consulta falhou")
+    assert(e.valor == 0.0)    var recuperado = avancarEstado(e, false, 10.0, 6000, 0)
+    assert(recuperado.estado == "ok")
+    assert(recuperado.erro == "")
+}
+
+test "buscarAlertaPorNome encontra e distingue nomes" {
+    var alertas = listOf<Alerta>(normalizarAlerta(AlertaManifest("cpu-alta", "CPU media alta", "cpu", "avg", "gt", "warning", "80", "60000", "0", "")))
+    var ausente = buscarAlertaPorNome(alertas, "nao-existe")
+    assert(ausente == buscarAlertaPorNome(alertas, "outro-inexistente"))
+    var achado = buscarAlertaPorNome(alertas, "cpu-alta")
+    assert(achado == buscarAlertaPorNome(alertas, "cpu-alta"))
+    assert(achado != buscarAlertaPorNome(alertas, "nao-existe"))
+}
+
+record AlertaManifesto(String name, List<AlertaManifest> alerts)
+
+List<Alerta> carregarAlertas(String diretorio) {
+    var validos = listOf<Alerta>()
+    if (Directory(diretorio).exists() == false) {
+        return validos
+    }
+    var nomes = Directory(diretorio).list()
+    var i = 0
+    while (i < nomes.size) {
+        var arquivo = nomes.get(i)
+        if (arquivo.endsWith(".json")) {
+            var caminho = diretorio + "/" + arquivo
+            var bruto = File(caminho).readText()
+            if (bruto == null) {
+                log.warn("manifesto de alertas ilegível ignorado: " + caminho)
+            } else {
+                try {
+                    var manifesto = json.decode<AlertaManifesto>(bruto)
+                    var alertas = manifesto.alerts
+                    if (alertas == null) {
+                        alertas = listOf<AlertaManifest>()
+                    }
+                    var j = 0
+                    while (j < alertas.size) {
+                        var brutoAlerta = alertas.get(j)
+                        var erros = errosDeAlerta(brutoAlerta)
+                        if (erros.size > 0) {
+                            log.warn("alerta inválido ignorado (" + caminho + "): " + erros.get(0))
+                        } else {
+                            validos.add(normalizarAlerta(brutoAlerta))
+                        }
+                        j = j + 1
+                    }
+                } catch (Exception e) {
+                    log.warn("manifesto de alertas com JSON inválido ignorado: " + caminho)
+                }
+            }
+        }
+        i = i + 1
+    }
+    return validos
+}
+
+Map<String, EstadoAlerta> iniciarEstados(List<Alerta> alertas, Map<String, EstadoAlerta> anterior) {
+    var novos = mapOf<String, EstadoAlerta>()
+    var i = 0
+    while (i < alertas.size) {
+        var a = alertas.get(i)
+        var atual = anterior.get(a.name)
+        if (atual == null) {
+            novos.put(a.name, estadoInicial(a.name))
+        } else {
+            novos.put(a.name, atual)
+        }
+        i = i + 1
+    }
+    return novos
+}
+
+List<EstadoAlertaOut> estadosParaSaida(List<Alerta> alertas, Map<String, EstadoAlerta> estados) {
+    var saida = listOf<EstadoAlertaOut>()
+    var i = 0
+    while (i < alertas.size) {
+        var a = alertas.get(i)
+        var encontrado = estados.get(a.name)
+        var e = estadoInicial(a.name)
+        if (encontrado != null) {
+            e = EstadoAlerta(encontrado.name, encontrado.estado, encontrado.valor, encontrado.ultimaAvaliacao, encontrado.desdeMs, encontrado.erro)
+        }
+        saida.add(EstadoAlertaOut(a.name, a.title, a.metric, a.severidade, e.estado, e.valor, a.operador, a.limiar, e.ultimaAvaliacao, e.erro))
+        i = i + 1
+    }
+    return saida
+}
+
+Alerta? buscarAlertaPorNome(List<Alerta> alertas, String nome) {
+    var i = 0
+    while (i < alertas.size) {
+        var a = alertas.get(i)
+        if (a.name == nome) {
+            return a
+        }
+        i = i + 1
+    }
+    return null
+}

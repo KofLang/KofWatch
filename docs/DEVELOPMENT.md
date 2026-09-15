@@ -40,6 +40,21 @@ curl -s -X POST localhost:8080/api/metrics \
   (amostras), `/api/aggregate/:name?fn=avg|sum|min|max|count&windowMs=`.
 - GETs retornam `Access-Control-Allow-Origin: *` (CORS aberto para o front).
 
+## Bateria de validação das rotas
+
+```bash
+./scripts/validate-api.sh [BASE_URL]   # default http://localhost:8080
+```
+
+Cobre as 12 rotas do contrato com 39 casos: health/info, ingestão
+válida e inválida (nome com espaço, vazio, sem valor, JSON malformado,
+nome > 64), query/aggregate com nome e parâmetros inválidos, dashboards
+(200/400/404) e o ciclo de alertas (GET duplo sem mutar `ackedMs`, ack
+estado-dependente 200/409, 400/404). Saída `PASS/FAIL` por caso,
+contagem final e exit != 0 em qualquer falha — é a suíte de regressão
+das rotas (o `kof test` não cobre integração multi-arquivo). Requer o
+backend de pé e manifestos em `dashboards/` e regras em `alerts/`.
+
 ## Rodando o dashboard
 
 ### Browser (modo principal)
@@ -157,3 +172,12 @@ Regras que o codepen js da 0.3.22 impõe ao front (ver PLAN.md §4):
 - Widgets só são tocados no escopo do `main`/lambdas dele.
 - Estado entre eventos: variáveis locais capturadas (estáticos com
   inicializador ficam `undefined` no browser).
+
+## Formatação numérica no front
+
+A exibição de valores (texto central de gauge/stat, resumo `min a max`
+do timeseries) usa o helper `comDuasCasas` de `web/Index.kf`, que trunca
+o `Double` para 2 casas com aritmética pura (`v*100`, corte do `% 1.0`,
+de volta por `/100`) — a stdlib 0.3.22 não tem formatação numérica
+(PLAN §4 item 11). Contas internas (thresholds, agregações, alertas)
+seguem com precisão completa; só a camada de texto é truncada.

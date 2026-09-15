@@ -62,7 +62,8 @@ neste plano — nada aqui é suposição.
     aparece depois, na validação do manifesto.
 11. **`Double.longValue()` compila no jvm mas NÃO existe no codegen js** —
     `TypeError: valor.longValue is not a function` em runtime (13/09).
-    Para texto, usar `valor.toString()`.
+    Para texto, usar `valor.toString()` (ou o helper `comDuasCasas` de
+    `web/Index.kf` quando a exibição pede 2 casas).
 12. **`kof run` lê `kof.config`, não `config.properties` (gap novo, 14/09)** —
     o template do `kof config gen` inverte o nome: gerado com
     `--output config.properties`, o arquivo é IGNORADO pelo runtime
@@ -252,6 +253,22 @@ dashboard kof-ui exibindo a série com gráfico Canvas — tudo em Kof. ✅
    `scheduler.every` ativo desde o boot sem erro no log (ciclo default
    1h de check — retenção efetiva validada apenas por não-crashar;
    teste de janela curta fica para a Etapa E). ✅
+
+9. **Bateria de API reproduzível (14/09)** — `scripts/validate-api.sh`
+   transforma as provas ad-hoc de curl das Fases 4-6 em suíte de
+   regressão executável com um comando (39 casos sobre as 12 rotas do
+   contrato, exit != 0 em falha). Provas: 39/39 verdes contra backend
+   recém-subido; `kof check .` limpo (6 arquivos). Detalhes em
+   DEVELOPMENT.md ("Bateria de validação das rotas"). ✅
+
+10. **Formatação numérica do front (15/09)** — `comDuasCasas` em
+    `web/Index.kf` trunca para 2 casas (aritmética pura, sem stdlib de
+    formatação) e alimenta `textoDeValor` e `resumoDe`. Provas: probe
+    isolado (12.333... -> 12.33, 42.5 -> 42.5, 0.001 -> 0.0) e span
+    central do canvas do gauge idêntico (148px) para agregados com
+    formas cruas de 17 e 14 caracteres; `kof check .` limpo, bateria
+    39/39 contra o backend recompilado. Pendência 5 do STATUS fechada.
+    ✅
 
 ### Desenho real do front (ajustado na Etapa 5)
 
@@ -455,7 +472,8 @@ Dois fatos novos de plataforma descobertos na Fase 3 (detalhes no §1):
    `...fn inválido ... : null`. Os manifestos usam `"fnc"`.
 2. `Double.longValue()` compila no jvm mas NÃO existe no codegen js
    (`TypeError: valor.longValue is not a function` em runtime, 13/09).
-   Para texto, usar `valor.toString()`.
+   Para texto, usar `valor.toString()` (ou o helper `comDuasCasas` de
+   `web/Index.kf` quando a exibição pede 2 casas).
 
 ### Motor de alertas (Fase 4, concluída 14/09)
 

@@ -32,8 +32,19 @@ Double valorDeGaugeTexto(String bruto) {
     return agg.valor()
 }
 
+String comDuasCasas(Double v) {
+    var escalado = v * 100.0
+    var inteiro = 0.0
+    if (escalado >= 0.0) {
+        inteiro = escalado - (escalado % 1.0)
+    } else {
+        inteiro = escalado - (escalado % 1.0) + 1.0
+    }
+    return (inteiro / 100.0).toString()
+}
+
 String textoDeValor(Double valor, String unidade) {
-    var corpo = valor.toString()
+    var corpo = comDuasCasas(valor)
     if (unidade == "") {
         return corpo
     }
@@ -89,7 +100,7 @@ String resumoDe(List<Double> pontos) {
             maximo = p
         }
     }
-    return minimo.toString() + " a " + maximo.toString()
+    return comDuasCasas(minimo) + " a " + comDuasCasas(maximo)
 }
 
 String formatoDe(List<Double> pontos) {

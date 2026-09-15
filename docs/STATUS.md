@@ -221,13 +221,26 @@ seguinte) e botão atualizar, tudo sem erros no console.
    canônica `k=v,k=v`.
 4. `sort`/`join` ausentes na stdlib 0.3.22 — contorno local em
    `Labels.kf` (some quando a stdlib cobrir).
-5. Arredondamento/formatação numérica no front: `Double` js é número JS,
-   exibição via `.toString()`.
+5. ~~Arredondamento/formatação numérica no front: `Double` js é número JS,
+   exibição via `.toString()`~~ RESOLVIDA (15/09): helper `comDuasCasas`
+   em `web/Index.kf` trunca para 2 casas (aritmética pura, sem stdlib de
+   formatação) e alimenta `textoDeValor` (gauge/stat) e `resumoDe`
+   (timeseries). Prova: probe isolado em /tmp provou truncamento
+   (12.333... -> 12.33, 42.5 -> 42.5, 0.001 -> 0.0); no browser, o span
+   central do canvas do gauge ficou IDENTICO (148px) para dois agregados
+   cujas formas cruas tinham 17 e 14 caracteres (74.66857142853571 vs
+   75.57928571425) — só compatível com 5 glifos ("74.67"/"75.58").
+   Modelo sem visão: verificação quantitativa por getImageData.
 6. Query string sem URL-decode no runtime: clientes não devem
    percent-encode os valores de `labels` (ver PLAN §4).
-7. Suíte de testes multi-arquivo: `kof test <dir>` compila cada arquivo
+7. ~~Suíte de testes multi-arquivo: `kof test <dir>` compila cada arquivo
    isolado e falha em dependências (ver PLAN §4); cobrir rotas com
-   bateria curl em script.
+   bateria curl em script~~ RESOLVIDA (14/09): `scripts/validate-api.sh`
+   cobre as 12 rotas do contrato (39 casos: health/info, ingestão
+   válida/inválida, query/aggregate com nome e parâmetros inválidos,
+   dashboards 400/404, alerts GET-puro sem mutação de ackedMs + ack
+   estado-dependente + 404) e sai com exit != 0 em falha. Prova:
+   39/39 verdes contra backend recém-subido.
 8. ~~Front ainda não consome `/api/dashboard/:name`~~ RESOLVIDA (13/09):
    o dashboard kof-ui agora renderiza os painéis do manifesto
    (timeseries + gauge) com live update por `time.interval`; tipos
